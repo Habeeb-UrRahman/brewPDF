@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">brewPDF</string>
+    <string name="add_pdfs">Add PDFs</string>
+    <string name="merge">Merge</string>
+    <string name="merging">Merging…</string>
+    <string name="share">Share</string>
+    <string name="open">Open</string>
+    <string name="remove">Remove</string>
+    <string name="close">Close</string>
+    <string name="merge_success">Merge Complete</string>
+    <string name="saved_to_downloads">Saved to Downloads</string>
+    <string name="error_min_two">Add at least 2 PDFs to merge.</string>
+    <string name="error_min_one_more">Add at least one more PDF.</string>
+    <string name="error_merge_failed">Merge failed. Please try again.</string>
+    <string name="error_file_read">Error reading PDF files. Please try again.</string>
+    <string name="empty_title">No PDFs Staged</string>
+    <string name="empty_subtitle">Share PDFs from any app or tap the button below to add files</string>
+    <string name="pages">pages</string>
+    <string name="page">page</string>
+    <string name="drag_to_reorder">Drag to reorder</string>
+    <string name="tab_stage">Stage</string>
+    <string name="tab_tools">Tools</string>
+    <string name="tool_compress">Compress</string>
+    <string name="tool_compress_desc">Shrink PDF file size</string>
+    <string name="tool_extract">Extract Pages</string>
+    <string name="tool_extract_desc">Pull specific pages</string>
+    <string name="tool_images_to_pdf">Images → PDF</string>
+    <string name="tool_images_to_pdf_desc">Photos to document</string>
+    <string name="tool_encrypt">Lock PDF</string>
+    <string name="tool_encrypt_desc">Password protect</string>
+    <string name="tool_page_editor">Page Editor</string>
+    <string name="tool_page_editor_desc">Reorder &amp; delete pages</string>
+    <string name="tool_pdf_to_images">PDF → Images</string>
+    <string name="tool_pdf_to_images_desc">Export pages as photos</string>
+</resources>
+

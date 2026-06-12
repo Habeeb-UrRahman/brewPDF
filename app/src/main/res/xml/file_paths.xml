@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- For sharing merged PDFs from external cache -->
+    <external-cache-path name="merged_pdfs" path="." />
+    <!-- For sharing cached copies of input PDFs -->
+    <cache-path name="pdf_cache" path="." />
+    <!-- For sharing persistently staged PDFs -->
+    <files-path name="pdf_staging" path="staging/" />
+</paths>

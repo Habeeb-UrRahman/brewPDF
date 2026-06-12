@@ -1,4 +1,4 @@
-# PDF Merger
+# brewPDF
 
 A native Android app that merges multiple PDF files into one. Share PDFs from any app (Files, Drive, browser) and they appear in a staging list. Reorder by drag-and-drop, then merge with a single tap.
 
@@ -24,50 +24,12 @@ A native Android app that merges multiple PDF files into one. Share PDFs from an
 | Target SDK | 35 (Android 15) |
 | Build | Gradle 8.11.1 + AGP 8.7.3 |
 
-## Prerequisites
+## Download & Install
 
-- **JDK 17+** installed and on PATH
-- **Android SDK** with:
-  - Build Tools 35
-  - Platform SDK 35
-- **OR** just open the project in **Android Studio** (Ladybug or newer) — it downloads everything automatically
-
-## Build the APK
-
-### Option A: Android Studio (Recommended)
-
-1. Open the project folder in Android Studio
-2. Wait for Gradle sync to complete
-3. Click **Build → Build Bundle(s) / APK(s) → Build APK(s)**
-4. The APK will be at `app/build/outputs/apk/debug/app-debug.apk`
-
-### Option B: Command Line
-
-```bash
-# On macOS/Linux:
-./gradlew assembleDebug
-
-# On Windows:
-gradlew.bat assembleDebug
-```
-
-The debug APK is generated at:
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-## Install the APK
-
-### Via ADB
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Via File Transfer
-1. Copy `app-debug.apk` to your phone
-2. Open it in a file manager
-3. Allow "Install from unknown sources" when prompted
-4. Install
+1. Go to the [Releases](../../releases) page of this repository.
+2. Download the latest `app-debug.apk` (or `app-release.apk`) file.
+3. Open the downloaded file on your Android device.
+4. Allow "Install from unknown sources" if prompted, and tap **Install**.
 
 ## How to Use
 

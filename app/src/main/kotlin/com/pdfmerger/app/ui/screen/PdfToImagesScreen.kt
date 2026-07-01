@@ -14,7 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -33,7 +34,7 @@ enum class ImageFormat(val label: String, val ext: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PdfToImagesScreen(onBack: () -> Unit) {
+fun PdfToImagesScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -46,7 +47,21 @@ fun PdfToImagesScreen(onBack: () -> Unit) {
     var exportedCount by remember { mutableStateOf(0) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            fileSize = FileProviderUtil.getFileSize(context, uri)
+            isDone = false
+            errorMessage = null
+            exportedCount = 0
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -62,7 +77,59 @@ fun PdfToImagesScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "PDF → Images",
         subtitle = "Convert each page into an image file",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        exportedCount = 0
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Extract Images",
+                    isActionEnabled = !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolPdfToImages,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            val count = withContext(Dispatchers.IO) {
+                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "export_input_${System.currentTimeMillis()}.pdf")
+                                    ?: throw Exception("Failed to read file")
+                                val outputDir = File(context.cacheDir, "pdf_export_${System.currentTimeMillis()}")
+                                outputDir.mkdirs()
+                                PdfUtils.pdfToImages(inputFile, outputDir, selectedFormat)
+
+                                var saved = 0
+                                val baseName = fileName.removeSuffix(".pdf").removeSuffix(".PDF")
+                                outputDir.listFiles()?.sortedBy { it.name }?.forEachIndexed { index, file ->
+                                    val imgName = "${baseName}_page${index + 1}.${selectedFormat.ext}"
+                                    FileProviderUtil.saveImageToDownloads(context, file, imgName, selectedFormat)
+                                    saved++
+                                }
+
+                                inputFile.delete()
+                                outputDir.deleteRecursively()
+                                saved
+                            }
+                            exportedCount = count
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Export failed"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -129,43 +196,7 @@ fun PdfToImagesScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Exporting…" else "Export as ${selectedFormat.label}",
-                enabled = !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            val count = withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "export_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val outputDir = File(context.cacheDir, "pdf_export_${System.currentTimeMillis()}")
-                                outputDir.mkdirs()
-                                PdfUtils.pdfToImages(inputFile, outputDir, selectedFormat)
-
-                                var saved = 0
-                                val baseName = fileName.removeSuffix(".pdf").removeSuffix(".PDF")
-                                outputDir.listFiles()?.sortedBy { it.name }?.forEachIndexed { index, file ->
-                                    val imgName = "${baseName}_page${index + 1}.${selectedFormat.ext}"
-                                    FileProviderUtil.saveImageToDownloads(context, file, imgName, selectedFormat)
-                                    saved++
-                                }
-
-                                inputFile.delete()
-                                outputDir.deleteRecursively()
-                                saved
-                            }
-                            exportedCount = count
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Export failed"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 }

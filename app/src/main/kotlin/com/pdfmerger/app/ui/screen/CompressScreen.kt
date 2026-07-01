@@ -15,7 +15,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -39,7 +40,7 @@ enum class CompressionLevel(val label: String, val level: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CompressScreen(onBack: () -> Unit) {
+fun CompressScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -55,7 +56,21 @@ fun CompressScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            originalSize = FileProviderUtil.getFileSize(context, uri)
+            compressedSize = null
+            isDone = false
+            errorMessage = null
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -71,7 +86,56 @@ fun CompressScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Compress PDF",
         subtitle = "Shrink file size while keeping quality",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        compressedSize = null
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Compress PDF",
+                    isActionEnabled = !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = ToolCompress,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            val cachedFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "compress_input_${System.currentTimeMillis()}.pdf")
+                            withContext(Dispatchers.IO) {
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "compressed_${timestamp}.pdf")
+                                PdfUtils.compressPdf(cachedFile!!, outputFile, selectedLevel.level)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "compressed_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "compressed_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                    compressedSize = outputFile.length()
+                                }
+                                cachedFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Compression failed"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -129,40 +193,7 @@ fun CompressScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Compressing…" else "Compress PDF",
-                enabled = !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            val cachedFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "compress_input_${System.currentTimeMillis()}.pdf")
-                            withContext(Dispatchers.IO) {
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "compressed_${timestamp}.pdf")
-                                PdfUtils.compressPdf(cachedFile!!, outputFile, selectedLevel.level)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "compressed_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "compressed_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                    compressedSize = outputFile.length()
-                                }
-                                cachedFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Compression failed"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

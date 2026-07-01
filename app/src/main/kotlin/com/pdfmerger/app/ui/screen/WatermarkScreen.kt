@@ -12,7 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -30,7 +31,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WatermarkScreen(onBack: () -> Unit) {
+fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -44,7 +45,21 @@ fun WatermarkScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            fileSize = FileProviderUtil.getFileSize(context, uri)
+            isDone = false
+            errorMessage = null
+            watermarkText = ""
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -60,7 +75,57 @@ fun WatermarkScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Watermark PDF",
         subtitle = "Add a text overlay across all pages",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        watermarkText = ""
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Add Watermark",
+                    isActionEnabled = watermarkText.isNotEmpty() && !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolWatermark,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            withContext(Dispatchers.IO) {
+                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "watermark_input_${System.currentTimeMillis()}.pdf")
+                                    ?: throw Exception("Failed to read file")
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "watermarked_${timestamp}.pdf")
+                                PdfUtils.addTextWatermark(inputFile, outputFile, watermarkText)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "watermarked_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "watermarked_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                                inputFile.delete()
+                                outputFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Failed to apply watermark"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -97,41 +162,7 @@ fun WatermarkScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Applying…" else "Add Watermark",
-                enabled = watermarkText.isNotEmpty() && !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "watermark_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "watermarked_${timestamp}.pdf")
-                                PdfUtils.addTextWatermark(inputFile, outputFile, watermarkText)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "watermarked_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "watermarked_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                inputFile.delete()
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to apply watermark"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -36,7 +37,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EncryptScreen(onBack: () -> Unit) {
+fun EncryptScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -52,7 +53,20 @@ fun EncryptScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            fileSize = FileProviderUtil.getFileSize(context, uri)
+            isDone = false
+            errorMessage = null
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -69,7 +83,57 @@ fun EncryptScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Lock PDF",
         subtitle = "Protect your document with a password",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        password = ""
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Encrypt",
+                    isActionEnabled = password.isNotEmpty() && password == confirmPassword && !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolEncrypt,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            withContext(Dispatchers.IO) {
+                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "encrypt_input_${System.currentTimeMillis()}.pdf")
+                                    ?: throw Exception("Failed to read file")
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "locked_${timestamp}.pdf")
+                                PdfUtils.encryptPdf(inputFile, outputFile, password)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "locked_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "locked_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                                inputFile.delete()
+                                outputFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Encryption failed"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -139,41 +203,7 @@ fun EncryptScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Encrypting…" else "Lock PDF",
-                enabled = password.isNotEmpty() && password == confirmPassword && !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "encrypt_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "locked_${timestamp}.pdf")
-                                PdfUtils.encryptPdf(inputFile, outputFile, password)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "locked_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "locked_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                inputFile.delete()
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Encryption failed"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

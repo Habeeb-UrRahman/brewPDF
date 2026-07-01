@@ -18,7 +18,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -36,7 +37,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UnlockScreen(onBack: () -> Unit) {
+fun UnlockScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -51,7 +52,21 @@ fun UnlockScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            fileSize = FileProviderUtil.getFileSize(context, uri)
+            isDone = false
+            errorMessage = null
+            password = ""
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -67,7 +82,57 @@ fun UnlockScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Unlock PDF",
         subtitle = "Remove password protection from your document",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        password = ""
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Unlock",
+                    isActionEnabled = password.isNotEmpty() && !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolUnlock,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            withContext(Dispatchers.IO) {
+                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "unlock_input_${System.currentTimeMillis()}.pdf")
+                                    ?: throw Exception("Failed to read file")
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "unlocked_${timestamp}.pdf")
+                                PdfUtils.unlockPdf(inputFile, outputFile, password)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "unlocked_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "unlocked_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                                inputFile.delete()
+                                outputFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Failed to unlock. Wrong password?"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -114,41 +179,7 @@ fun UnlockScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Unlocking…" else "Unlock PDF",
-                enabled = password.isNotEmpty() && !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "unlock_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "unlocked_${timestamp}.pdf")
-                                PdfUtils.unlockPdf(inputFile, outputFile, password)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "unlocked_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "unlocked_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                inputFile.delete()
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to unlock. Wrong password?"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

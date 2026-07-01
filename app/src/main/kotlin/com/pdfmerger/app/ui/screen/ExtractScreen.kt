@@ -30,7 +30,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewFileCard
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
@@ -49,7 +50,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExtractScreen(onBack: () -> Unit) {
+fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -67,7 +68,30 @@ fun ExtractScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            isDone = false
+            errorMessage = null
+            scope.launch {
+                val file = withContext(Dispatchers.IO) {
+                    FileProviderUtil.copyUriToStaging(context, uri, "extract_input_${System.currentTimeMillis()}.pdf")
+                }
+                cachedFile = file
+                if (file != null) {
+                    val thumbs = withContext(Dispatchers.IO) { loadThumbnails(file) }
+                    pageThumbnails = thumbs
+                    pageCount = thumbs.size
+                }
+            }
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -97,7 +121,57 @@ fun ExtractScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Extract Pages",
         subtitle = if (selectedPages.isNotEmpty()) "${selectedPages.size} page${if (selectedPages.size > 1) "s" else ""} selected" else "Pull specific pages out",
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        selectedPages = emptySet()
+                        pageThumbnails = emptyList()
+                        pageCount = 0
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Extract Files",
+                    isActionEnabled = selectedPages.isNotEmpty() && !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolExtract,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            withContext(Dispatchers.IO) {
+                                val sortedPages = selectedPages.sorted().map { it + 1 } // 1-indexed
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "extracted_${timestamp}.pdf")
+                                PdfUtils.extractPages(cachedFile!!, outputFile, sortedPages)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "extracted_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "extracted_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                                outputFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Extraction failed"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -181,39 +255,7 @@ fun ExtractScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Extracting…" else "Extract ${selectedPages.size} Pages",
-                enabled = selectedPages.isNotEmpty() && !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val sortedPages = selectedPages.sorted().map { it + 1 } // 1-indexed
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "extracted_${timestamp}.pdf")
-                                PdfUtils.extractPages(cachedFile!!, outputFile, sortedPages)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "extracted_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "extracted_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Extraction failed"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

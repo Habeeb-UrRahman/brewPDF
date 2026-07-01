@@ -32,6 +32,7 @@ fun BrewScaffold(
     title: String,
     subtitle: String? = null,
     onBack: () -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
     Scaffold(
@@ -65,7 +66,8 @@ fun BrewScaffold(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        }
+        },
+        bottomBar = bottomBar
     ) { padding ->
         Column(
             modifier = Modifier

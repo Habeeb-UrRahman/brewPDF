@@ -29,7 +29,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pdfmerger.app.ui.component.BrewActionButton
+import com.pdfmerger.app.ui.component.ToolBottomBar
+import androidx.compose.material.icons.outlined.FolderOpen
 import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
 import com.pdfmerger.app.ui.component.ToolResultSheet
@@ -47,7 +48,7 @@ import sh.calvin.reorderable.ReorderableItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PageEditorScreen(onBack: () -> Unit) {
+fun PageEditorScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -62,7 +63,32 @@ fun PageEditorScreen(onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    val filePicker = rememberLauncherForActivityResult(
+    
+    LaunchedEffect(initialUri) {
+        if (initialUri != null && selectedUri == null) {
+            val uri = initialUri
+
+            selectedUri = uri
+            fileName = FileProviderUtil.getFileName(context, uri)
+            isDone = false
+            errorMessage = null
+            scope.launch {
+                val file = withContext(Dispatchers.IO) {
+                    FileProviderUtil.copyUriToStaging(context, uri, "pageedit_input_${System.currentTimeMillis()}.pdf")
+                }
+                cachedFile = file
+                if (file != null) {
+                    val thumbs = withContext(Dispatchers.IO) {
+                        loadPageThumbnails(file)
+                    }
+                    pageThumbnails = thumbs
+                    pageOrder = thumbs.indices.toList()
+                }
+            }
+        
+        }
+    }
+val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -96,7 +122,57 @@ fun PageEditorScreen(onBack: () -> Unit) {
     BrewScaffold(
         title = "Page Editor",
         subtitle = subtitle,
-        onBack = onBack
+        onBack = onBack,
+        bottomBar = {
+            if (selectedUri != null) {
+                ToolBottomBar(
+                    leftIcon = Icons.Outlined.FolderOpen,
+                    onLeftClick = { filePicker.launch(arrayOf("application/pdf")) },
+                    leftContentDesc = "Change File",
+                    showClearButton = true,
+                    onClearClick = {
+                        selectedUri = null
+                        pageThumbnails = emptyList()
+                        pageOrder = emptyList()
+                        cachedFile = null
+                        isDone = false
+                        errorMessage = null
+                    },
+                    actionText = if (isDone) "Done ✓" else "Process PDF",
+                    isActionEnabled = pageOrder.isNotEmpty() && !isProcessing && !isDone,
+                    isProcessing = isProcessing,
+                    actionColor = com.pdfmerger.app.ui.theme.ToolPageEditor,
+                    onActionClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                            withContext(Dispatchers.IO) {
+                                val pagesOneBased = pageOrder.map { it + 1 }
+                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                val outputFile = File(context.cacheDir, "edited_${timestamp}.pdf")
+                                PdfUtils.reorderAndDeletePages(cachedFile!!, outputFile, pagesOneBased)
+                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "edited_$fileName")
+                                if (resultUri != null) {
+                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                        fileName = "edited_$fileName",
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                                outputFile.delete()
+                            }
+                            isDone = true
+                        } catch (e: Exception) {
+                            errorMessage = e.localizedMessage ?: "Edit failed"
+                        }
+                            isProcessing = false
+                        }
+                    }
+                )
+            }
+        }
     ) {
         if (selectedUri == null) {
             Spacer(modifier = Modifier.weight(1f))
@@ -195,39 +271,7 @@ fun PageEditorScreen(onBack: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            BrewActionButton(
-                text = if (isDone) "Done ✓" else if (isProcessing) "Saving…" else "Save Edited PDF",
-                enabled = pageOrder.isNotEmpty() && !isProcessing && !isDone,
-                onClick = {
-                    isProcessing = true
-                    errorMessage = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                val pagesOneBased = pageOrder.map { it + 1 }
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "edited_${timestamp}.pdf")
-                                PdfUtils.reorderAndDeletePages(cachedFile!!, outputFile, pagesOneBased)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "edited_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "edited_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Edit failed"
-                        }
-                        isProcessing = false
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            
         }
     }
 

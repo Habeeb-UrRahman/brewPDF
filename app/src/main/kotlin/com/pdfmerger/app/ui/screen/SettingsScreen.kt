@@ -12,6 +12,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -19,6 +22,8 @@ import com.pdfmerger.app.ui.component.BrewScaffold
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+
     BrewScaffold(
         title = "Settings",
         subtitle = "Preferences and information",
@@ -61,6 +66,28 @@ fun SettingsScreen(onBack: () -> Unit) {
                 title = "brewPDF v2.0",
                 subtitle = "Built with ❤️ by Brew Creative Studio"
             )
+
+            Text(
+                "Connect",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            SettingsItem(
+                icon = Icons.Outlined.Info, // Placeholder for Website icon
+                title = "Website",
+                subtitle = "https://www.habeeburrahman.in",
+                onClick = { uriHandler.openUri("https://www.habeeburrahman.in") }
+            )
+
+            SettingsItem(
+                icon = Icons.Outlined.Info, // Placeholder for YouTube icon
+                title = "YouTube",
+                subtitle = "https://www.youtube.com/@techbrewtv",
+                onClick = { uriHandler.openUri("https://www.youtube.com/@techbrewtv") }
+            )
         }
     }
 }
@@ -69,13 +96,15 @@ fun SettingsScreen(onBack: () -> Unit) {
 private fun SettingsItem(
     icon: ImageVector,
     title: String,
-    subtitle: String
+    subtitle: String,
+    onClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable { onClick() }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

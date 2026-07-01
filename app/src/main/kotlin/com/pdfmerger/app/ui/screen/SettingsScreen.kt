@@ -6,23 +6,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.clickable
+import android.content.Intent
+import android.net.Uri
 import com.pdfmerger.app.ui.component.BrewScaffold
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
-    val uriHandler = LocalUriHandler.current
-
     BrewScaffold(
         title = "Settings",
         subtitle = "Preferences and information",
@@ -74,18 +76,26 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 16.dp)
             )
 
+            val context = LocalContext.current
+
             SettingsItem(
-                icon = Icons.Outlined.Info, // Placeholder for Website icon
+                icon = Icons.Outlined.Language,
                 title = "Website",
                 subtitle = "https://www.habeeburrahman.in",
-                onClick = { uriHandler.openUri("https://www.habeeburrahman.in") }
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.habeeburrahman.in"))
+                    context.startActivity(intent)
+                }
             )
 
             SettingsItem(
-                icon = Icons.Outlined.Info, // Placeholder for YouTube icon
+                icon = Icons.Outlined.PlayArrow,
                 title = "YouTube",
                 subtitle = "https://www.youtube.com/@techbrewtv",
-                onClick = { uriHandler.openUri("https://www.youtube.com/@techbrewtv") }
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@techbrewtv"))
+                    context.startActivity(intent)
+                }
             )
         }
     }
@@ -96,14 +106,14 @@ private fun SettingsItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit = {}
+    onClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable { onClick() }
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

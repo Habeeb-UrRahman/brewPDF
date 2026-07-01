@@ -9,15 +9,25 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.pdfmerger.app"
+        applicationId = "com.brewcreativestudio.brewpdf"
         minSdk = 26
         targetSdk = 35
         versionCode = 3
         versionName = "2.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../release.jks")
+            storePassword = "brewpdf2026"
+            keyAlias = "brewpdf"
+            keyPassword = "brewpdf2026"
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

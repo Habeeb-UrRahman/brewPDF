@@ -24,3 +24,6 @@ local.properties
 
 # App build directory
 /app/build
+
+# Signing Keystores (HIGHLY CONFIDENTIAL)
+*.jks

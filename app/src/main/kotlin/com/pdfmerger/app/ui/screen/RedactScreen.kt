@@ -45,30 +45,26 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    
-    LaunchedEffect(initialUri) {
-        if (initialUri != null && selectedUri == null) {
-            val uri = initialUri
-
-            selectedUri = uri
-            fileName = FileProviderUtil.getFileName(context, uri)
-            fileSize = FileProviderUtil.getFileSize(context, uri)
-            isDone = false
-            errorMessage = null
-            textToRedact = ""
-        
-        }
+    fun handleUriSelection(uri: Uri) {
+        selectedUri = uri
+        fileName = FileProviderUtil.getFileName(context, uri)
+        fileSize = FileProviderUtil.getFileSize(context, uri)
+        isDone = false
+        errorMessage = null
+        textToRedact = ""
     }
-val filePicker = rememberLauncherForActivityResult(
+
+    val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            selectedUri = it
-            fileName = FileProviderUtil.getFileName(context, it)
-            fileSize = FileProviderUtil.getFileSize(context, it)
-            isDone = false
-            errorMessage = null
-            textToRedact = ""
+        if (uri != null) {
+            handleUriSelection(uri)
+        }
+    }
+
+    LaunchedEffect(initialUri) {
+        if (initialUri != null) {
+            handleUriSelection(initialUri)
         }
     }
 

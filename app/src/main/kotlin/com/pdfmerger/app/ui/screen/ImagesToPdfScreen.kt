@@ -55,32 +55,7 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    
-    LaunchedEffect(initialUris) {
-        if (initialUris.isNotEmpty() && selectedUris.isEmpty()) {
-
-            selectedUris = initialUris
-            isDone = false
-            errorMessage = null
-            scope.launch {
-                val thumbs = withContext(Dispatchers.IO) {
-                    initialUris.map { uri ->
-                        try {
-                            context.contentResolver.openInputStream(uri)?.use { stream ->
-                                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                                BitmapFactory.decodeStream(stream, null, opts)
-                            }
-                        } catch (e: Exception) { null }
-                    }
-                }
-                thumbnails = thumbs
-            }
-        
-        }
-    }
-val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
+    fun handleUriSelection(uris: List<Uri>) {
         if (uris.isNotEmpty()) {
             selectedUris = uris
             isDone = false
@@ -101,6 +76,20 @@ val imagePicker = rememberLauncherForActivityResult(
         }
     }
 
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris != null) {
+            handleUriSelection(uris)
+        }
+    }
+
+    LaunchedEffect(initialUris) {
+        if (initialUris.isNotEmpty()) {
+            handleUriSelection(initialUris)
+        }
+    }
+
     BrewScaffold(
         title = "Images → PDF",
         subtitle = if (selectedUris.isNotEmpty()) "${selectedUris.size} image${if (selectedUris.size > 1) "s" else ""} selected" else "Turn photos into a document",
@@ -115,7 +104,6 @@ val imagePicker = rememberLauncherForActivityResult(
                     onClearClick = {
                         selectedUris = emptyList()
                         thumbnails = emptyList()
-                        
                         isDone = false
                         errorMessage = null
                     },
@@ -128,30 +116,30 @@ val imagePicker = rememberLauncherForActivityResult(
                         errorMessage = null
                         scope.launch {
                             try {
-                            withContext(Dispatchers.IO) {
-                                val imageFiles = selectedUris.mapNotNull { uri ->
-                                    val name = "img_${System.currentTimeMillis()}_${selectedUris.indexOf(uri)}.jpg"
-                                    FileProviderUtil.copyUriToStaging(context, uri, name)
+                                withContext(Dispatchers.IO) {
+                                    val imageFiles = selectedUris.mapNotNull { uri ->
+                                        val name = "img_${System.currentTimeMillis()}_${selectedUris.indexOf(uri)}.jpg"
+                                        FileProviderUtil.copyUriToStaging(context, uri, name)
+                                    }
+                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                    val outputFile = File(context.cacheDir, "images_to_pdf_${timestamp}.pdf")
+                                    PdfUtils.imagesToPdf(imageFiles, outputFile)
+                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "images_${timestamp}.pdf")
+                                    if (resultUri != null) {
+                                        mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                            fileName = "images_${timestamp}.pdf",
+                                            fileSize = outputFile.length(),
+                                            outputUri = resultUri,
+                                            localFile = outputFile
+                                        )
+                                    }
+                                    imageFiles.forEach { it.delete() }
+                                    outputFile.delete()
                                 }
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "images_to_pdf_${timestamp}.pdf")
-                                PdfUtils.imagesToPdf(imageFiles, outputFile)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "images_${timestamp}.pdf")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "images_${timestamp}.pdf",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                imageFiles.forEach { it.delete() }
-                                outputFile.delete()
+                                isDone = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Conversion failed"
                             }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Conversion failed"
-                        }
                             isProcessing = false
                         }
                     }
@@ -159,7 +147,8 @@ val imagePicker = rememberLauncherForActivityResult(
             }
         }
     ) {
-        if (selectedUris.isEmpty()) { Spacer(modifier = Modifier.weight(1f))
+        if (selectedUris.isEmpty()) {
+            Spacer(modifier = Modifier.weight(1f))
             BrewPickerPrompt(
                 icon = Icons.Outlined.Image,
                 title = "Select Images",

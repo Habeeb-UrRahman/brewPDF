@@ -47,30 +47,26 @@ fun PdfToImagesScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var exportedCount by remember { mutableStateOf(0) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    
-    LaunchedEffect(initialUri) {
-        if (initialUri != null && selectedUri == null) {
-            val uri = initialUri
-
-            selectedUri = uri
-            fileName = FileProviderUtil.getFileName(context, uri)
-            fileSize = FileProviderUtil.getFileSize(context, uri)
-            isDone = false
-            errorMessage = null
-            exportedCount = 0
-        
-        }
+    fun handleUriSelection(uri: Uri) {
+        selectedUri = uri
+        fileName = FileProviderUtil.getFileName(context, uri)
+        fileSize = FileProviderUtil.getFileSize(context, uri)
+        isDone = false
+        errorMessage = null
+        exportedCount = 0
     }
-val filePicker = rememberLauncherForActivityResult(
+
+    val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            selectedUri = it
-            fileName = FileProviderUtil.getFileName(context, it)
-            fileSize = FileProviderUtil.getFileSize(context, it)
-            isDone = false
-            errorMessage = null
-            exportedCount = 0
+        if (uri != null) {
+            handleUriSelection(uri)
+        }
+    }
+
+    LaunchedEffect(initialUri) {
+        if (initialUri != null) {
+            handleUriSelection(initialUri)
         }
     }
 
@@ -87,7 +83,6 @@ val filePicker = rememberLauncherForActivityResult(
                     showClearButton = true,
                     onClearClick = {
                         selectedUri = null
-                        exportedCount = 0
                         isDone = false
                         errorMessage = null
                     },

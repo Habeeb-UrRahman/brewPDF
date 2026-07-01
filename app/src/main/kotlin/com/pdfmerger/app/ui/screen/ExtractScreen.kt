@@ -68,53 +68,40 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    
-    LaunchedEffect(initialUri) {
-        if (initialUri != null && selectedUri == null) {
-            val uri = initialUri
-
-            selectedUri = uri
-            fileName = FileProviderUtil.getFileName(context, uri)
-            isDone = false
-            errorMessage = null
-            scope.launch {
-                val file = withContext(Dispatchers.IO) {
-                    FileProviderUtil.copyUriToStaging(context, uri, "extract_input_${System.currentTimeMillis()}.pdf")
-                }
-                cachedFile = file
-                if (file != null) {
-                    val thumbs = withContext(Dispatchers.IO) { loadThumbnails(file) }
-                    pageThumbnails = thumbs
-                    pageCount = thumbs.size
-                }
+    fun handleUriSelection(uri: Uri) {
+        selectedUri = uri
+        fileName = FileProviderUtil.getFileName(context, uri)
+        fileSize = FileProviderUtil.getFileSize(context, uri)
+        selectedPages = emptySet()
+        isDone = false
+        errorMessage = null
+        // Load thumbnails
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                FileProviderUtil.copyUriToStaging(context, uri, "extract_input_${System.currentTimeMillis()}.pdf")
             }
-        
+            cachedFile = file
+            if (file != null) {
+                val thumbs = withContext(Dispatchers.IO) {
+                    loadThumbnails(file)
+                }
+                pageThumbnails = thumbs
+                pageCount = thumbs.size
+            }
         }
     }
-val filePicker = rememberLauncherForActivityResult(
+
+    val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            selectedUri = it
-            fileName = FileProviderUtil.getFileName(context, it)
-            fileSize = FileProviderUtil.getFileSize(context, it)
-            selectedPages = emptySet()
-            isDone = false
-            errorMessage = null
-            // Load thumbnails
-            scope.launch {
-                val file = withContext(Dispatchers.IO) {
-                    FileProviderUtil.copyUriToStaging(context, it, "extract_input_${System.currentTimeMillis()}.pdf")
-                }
-                cachedFile = file
-                if (file != null) {
-                    val thumbs = withContext(Dispatchers.IO) {
-                        loadThumbnails(file)
-                    }
-                    pageThumbnails = thumbs
-                    pageCount = thumbs.size
-                }
-            }
+        if (uri != null) {
+            handleUriSelection(uri)
+        }
+    }
+
+    LaunchedEffect(initialUri) {
+        if (initialUri != null) {
+            handleUriSelection(initialUri)
         }
     }
 

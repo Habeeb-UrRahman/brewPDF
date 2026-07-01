@@ -85,6 +85,7 @@ fun PdfMergerApp(
                     subtitle = "Compress, extract, lock & more",
                     accentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     onClick = {
+                        viewModel.pendingToolUris.value = sharedUris
                         viewModel.sharedUris.value = emptyList()
                         activeTool = null
                     }
@@ -202,6 +203,16 @@ private fun ShareOptionCard(
 @Composable
 private fun ToolRouter(tool: Tool, viewModel: MergeViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
+    val pendingUris = viewModel.pendingToolUris.value
+    val initialUri = pendingUris.firstOrNull()
+
+    // Clear pending URIs once injected to prevent stale data
+    LaunchedEffect(tool) {
+        if (pendingUris.isNotEmpty()) {
+            viewModel.pendingToolUris.value = emptyList()
+        }
+    }
+
     when (tool) {
         Tool.Merge -> StagingScreen(
             viewModel = viewModel,
@@ -217,16 +228,16 @@ private fun ToolRouter(tool: Tool, viewModel: MergeViewModel, onBack: () -> Unit
             },
             onBack = onBack
         )
-        Tool.Compress -> CompressScreen(onBack = onBack)
-        Tool.Extract -> ExtractScreen(onBack = onBack)
-        Tool.ImagesToPdf -> ImagesToPdfScreen(onBack = onBack)
-        Tool.Encrypt -> EncryptScreen(onBack = onBack)
-        Tool.PageEditor -> PageEditorScreen(onBack = onBack)
-        Tool.PdfToImages -> PdfToImagesScreen(onBack = onBack)
-        Tool.Unlock -> UnlockScreen(onBack = onBack)
-        Tool.Watermark -> WatermarkScreen(onBack = onBack)
-        Tool.PageNumbers -> PageNumbersScreen(onBack = onBack)
-        Tool.Redact -> RedactScreen(onBack = onBack)
+        Tool.Compress -> CompressScreen(initialUri = initialUri, onBack = onBack)
+        Tool.Extract -> ExtractScreen(initialUri = initialUri, onBack = onBack)
+        Tool.ImagesToPdf -> ImagesToPdfScreen(initialUris = pendingUris, onBack = onBack)
+        Tool.Encrypt -> EncryptScreen(initialUri = initialUri, onBack = onBack)
+        Tool.PageEditor -> PageEditorScreen(initialUri = initialUri, onBack = onBack)
+        Tool.PdfToImages -> PdfToImagesScreen(initialUri = initialUri, onBack = onBack)
+        Tool.Unlock -> UnlockScreen(initialUri = initialUri, onBack = onBack)
+        Tool.Watermark -> WatermarkScreen(initialUri = initialUri, onBack = onBack)
+        Tool.PageNumbers -> PageNumbersScreen(initialUri = initialUri, onBack = onBack)
+        Tool.Redact -> RedactScreen(initialUri = initialUri, onBack = onBack)
         Tool.Settings -> SettingsScreen(onBack = onBack)
     }
 }

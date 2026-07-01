@@ -58,6 +58,9 @@ class MergeViewModel : ViewModel() {
     /** URIs shared from external apps, waiting for disambiguation. */
     val sharedUris = mutableStateOf<List<Uri>>(emptyList())
 
+    /** URIs passed to a specific tool after disambiguation. */
+    val pendingToolUris = mutableStateOf<List<Uri>>(emptyList())
+
     companion object {
         private const val MAX_STAGING_SIZE_BYTES = 100L * 1024 * 1024 // 100MB
         private const val STATE_FILE_NAME = "staging_state.json"

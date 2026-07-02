@@ -39,6 +39,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.pdfmerger.app.ui.component.RenameDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,6 +55,8 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
     
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
 
     fun handleUriSelection(uris: List<Uri>) {
         if (uris.isNotEmpty()) {
@@ -112,36 +115,9 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolImagesToPdf,
                     onActionClick = {
-                        isProcessing = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    val imageFiles = selectedUris.mapNotNull { uri ->
-                                        val name = "img_${System.currentTimeMillis()}_${selectedUris.indexOf(uri)}.jpg"
-                                        FileProviderUtil.copyUriToStaging(context, uri, name)
-                                    }
-                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                    val outputFile = File(context.cacheDir, "images_to_pdf_${timestamp}.pdf")
-                                    PdfUtils.imagesToPdf(imageFiles, outputFile)
-                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "images_${timestamp}.pdf")
-                                    if (resultUri != null) {
-                                        mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                            fileName = "images_${timestamp}.pdf",
-                                            fileSize = outputFile.length(),
-                                            outputUri = resultUri,
-                                            localFile = outputFile
-                                        )
-                                    }
-                                    imageFiles.forEach { it.delete() }
-                                    outputFile.delete()
-                                }
-                                isDone = true
-                            } catch (e: Exception) {
-                                errorMessage = e.localizedMessage ?: "Conversion failed"
-                            }
-                            isProcessing = false
-                        }
+                        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                        suggestedOutputName = "images_${timestamp}.pdf"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -234,6 +210,46 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
                     context.startActivity(android.content.Intent.createChooser(viewIntent, "Open with"))
                 }
             }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val imageFiles = selectedUris.mapNotNull { uri ->
+                                val name = "img_${System.currentTimeMillis()}_${selectedUris.indexOf(uri)}.jpg"
+                                FileProviderUtil.copyUriToStaging(context, uri, name)
+                            }
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "images_to_pdf_${timestamp}.pdf")
+                            PdfUtils.imagesToPdf(imageFiles, outputFile)
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            imageFiles.forEach { it.delete() }
+                            outputFile.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Conversion failed"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
         )
     }
 }

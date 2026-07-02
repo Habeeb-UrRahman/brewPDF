@@ -1,12 +1,9 @@
 package com.pdfmerger.app.ui.screen
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
@@ -23,13 +20,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pdfmerger.app.ui.theme.*
 
 // ── Data ──
 
 enum class Tool {
-    Merge, Compress, Extract, ImagesToPdf, Encrypt, PageEditor, PdfToImages, Unlock, Watermark, PageNumbers, Redact, Settings
+    Merge, Compress, Extract, ImagesToPdf, Encrypt, PageEditor,
+    PdfToImages, Unlock, Watermark, PageNumbers, Redact,
+    ScanDocument, TextToPdf, PdfViewer, PdfMaker, Settings
 }
 
 data class ToolItem(
@@ -37,7 +37,8 @@ data class ToolItem(
     val icon: ImageVector,
     val name: String,
     val description: String,
-    val accent: Color
+    val accent: Color,
+    val comingSoon: Boolean = false
 )
 
 data class ToolCategory(
@@ -47,20 +48,25 @@ data class ToolCategory(
 
 val toolCategories = listOf(
     ToolCategory("Organize", listOf(
-        ToolItem(Tool.Extract, Icons.Outlined.ContentCut, "Extract Pages", "Pull specific pages out", ToolExtract),
-        ToolItem(Tool.PageEditor, Icons.Outlined.ViewComfy, "Page Editor", "Reorder, rotate & delete", ToolPageEditor),
-        ToolItem(Tool.PageNumbers, Icons.Outlined.FormatListNumbered, "Page Numbers", "Add numbers to pages", ToolPageNumbers),
+        ToolItem(Tool.Extract, Icons.Outlined.ContentCut, "Extract Pages", "Pull specific pages", ToolExtract),
+        ToolItem(Tool.PageEditor, Icons.Outlined.ViewComfy, "Page Editor", "Reorder & rotate", ToolPageEditor),
+        ToolItem(Tool.PageNumbers, Icons.Outlined.FormatListNumbered, "Page Numbers", "Add numbering", ToolPageNumbers),
     )),
     ToolCategory("Convert", listOf(
-        ToolItem(Tool.ImagesToPdf, Icons.Outlined.Image, "Images → PDF", "Photos into a document", ToolImagesToPdf),
-        ToolItem(Tool.PdfToImages, Icons.Outlined.PhotoLibrary, "PDF → Images", "Export pages as photos", ToolPdfToImages),
+        ToolItem(Tool.ImagesToPdf, Icons.Outlined.Image, "Images → PDF", "Photos to document", ToolImagesToPdf),
+        ToolItem(Tool.TextToPdf, Icons.Outlined.Article, "Text → PDF", "Txt to document", ToolMerge),
+        ToolItem(Tool.PdfToImages, Icons.Outlined.PhotoLibrary, "PDF → Images", "Pages as photos", ToolPdfToImages),
+        ToolItem(Tool.ScanDocument, Icons.Outlined.DocumentScanner, "Scan Document", "Camera to PDF", ToolScanDocument),
+        ToolItem(Tool.PdfMaker, Icons.Outlined.Edit, "PDF Maker", "Create PDFs from text", ToolMerge),
     )),
-    ToolCategory("Protect & Optimize", listOf(
-        ToolItem(Tool.Encrypt, Icons.Outlined.Lock, "Lock PDF", "Password protect a file", ToolEncrypt),
-        ToolItem(Tool.Unlock, Icons.Outlined.LockOpen, "Unlock PDF", "Remove passwords", ToolUnlock),
-        ToolItem(Tool.Watermark, Icons.Outlined.FontDownload, "Watermark", "Coming soon with brewPDF v3", ToolWatermark),
-        ToolItem(Tool.Redact, Icons.Outlined.FormatStrikethrough, "Redact", "Coming soon with brewPDF v3", ToolRedact),
-        ToolItem(Tool.Compress, Icons.Outlined.Compress, "Compress", "Coming soon with brewPDF v3", ToolCompress),
+    ToolCategory("Protect", listOf(
+        ToolItem(Tool.Encrypt, Icons.Outlined.Lock, "Lock PDF", "Password protect", ToolEncrypt),
+        ToolItem(Tool.Unlock, Icons.Outlined.LockOpen, "Unlock PDF", "Remove password", ToolUnlock),
+    )),
+    ToolCategory("Coming in v3", listOf(
+        ToolItem(Tool.Watermark, Icons.Outlined.FontDownload, "Watermark", "Coming soon", ToolWatermark, comingSoon = true),
+        ToolItem(Tool.Redact, Icons.Outlined.FormatStrikethrough, "Redact", "Coming soon", ToolRedact, comingSoon = true),
+        ToolItem(Tool.Compress, Icons.Outlined.Compress, "Compress", "Coming soon", ToolCompress, comingSoon = true),
     )),
 )
 
@@ -103,8 +109,8 @@ fun HomeScreen(
                 MergeHeroCard(onClick = { onToolSelected(Tool.Merge) })
             }
 
-            // ── Tool Categories ──
-            toolCategories.forEachIndexed { catIndex, category ->
+            // ── Tool Categories as Grid ──
+            toolCategories.forEach { category ->
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -116,30 +122,32 @@ fun HomeScreen(
                     )
                 }
 
-                itemsIndexed(category.tools) { toolIndex, toolItem ->
-                    val totalDelay = (catIndex * category.tools.size + toolIndex) * 50
-                    var visible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        kotlinx.coroutines.delay(totalDelay.toLong())
-                        visible = true
-                    }
-                    AnimatedVisibility(
-                        visible = visible,
-                        enter = fadeIn(animationSpec = tween(300)) +
-                                slideInVertically(
-                                    animationSpec = tween(300, easing = FastOutSlowInEasing)
-                                ) { it / 4 }
-                    ) {
-                        ToolRow(
-                            toolItem = toolItem,
-                            onClick = {
-                                if (toolItem.tool == Tool.Watermark || toolItem.tool == Tool.Redact || toolItem.tool == Tool.Compress) {
-                                    android.widget.Toast.makeText(context, "Coming Soon with brewPDF v3", android.widget.Toast.LENGTH_SHORT).show()
-                                } else {
-                                    onToolSelected(toolItem.tool)
-                                }
+                // Render tools in pairs (2-column grid)
+                val toolPairs = category.tools.chunked(2)
+                toolPairs.forEach { pair ->
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            pair.forEach { toolItem ->
+                                ToolGridCard(
+                                    toolItem = toolItem,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        if (toolItem.comingSoon) {
+                                            android.widget.Toast.makeText(context, "Coming Soon with brewPDF v3", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onToolSelected(toolItem.tool)
+                                        }
+                                    }
+                                )
                             }
-                        )
+                            // If odd number, add an invisible spacer
+                            if (pair.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -152,7 +160,7 @@ fun HomeScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "brewPDF v2.0 · Brew Creative Studio",
+                        text = "brewPDF v2.1 · Brew Creative Studio",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                     )
@@ -347,63 +355,61 @@ private fun MergeHeroCard(onClick: () -> Unit) {
 }
 
 @Composable
-private fun ToolRow(
+private fun ToolGridCard(
     toolItem: ToolItem,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val alpha = if (toolItem.comingSoon) 0.45f else 1f
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         onClick = onClick
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Icon pill
+            // Icon in a pill
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(toolItem.accent.copy(alpha = 0.12f)),
+                    .size(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(toolItem.accent.copy(alpha = 0.12f * alpha)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = toolItem.icon,
                     contentDescription = toolItem.name,
-                    tint = toolItem.accent,
+                    tint = toolItem.accent.copy(alpha = alpha),
                     modifier = Modifier.size(24.dp)
                 )
             }
 
             // Text
-            Column(modifier = Modifier.weight(1f)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = toolItem.name,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = toolItem.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f * alpha),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Chevron
-            Icon(
-                Icons.AutoMirrored.Rounded.ArrowForwardIos,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                modifier = Modifier.size(16.dp)
-            )
         }
     }
 }

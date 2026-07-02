@@ -21,6 +21,8 @@ import java.io.File
 import java.io.FileOutputStream
 
 import com.itextpdf.kernel.colors.ColorConstants
+import com.itextpdf.layout.element.AreaBreak
+import com.itextpdf.layout.properties.AreaBreakType
 import com.itextpdf.kernel.font.PdfFontFactory
 import com.itextpdf.layout.element.Paragraph
 import com.itextpdf.layout.properties.TextAlignment
@@ -318,5 +320,45 @@ object PdfUtils {
             }
         }
         pdfDoc.close()
+    }
+
+    /**
+     * Converts a plain text file into a PDF.
+     */
+    fun textToPdf(inputFile: File, outputFile: File) {
+        val writer = PdfWriter(outputFile)
+        val pdfDoc = PdfDocument(writer)
+        val document = Document(pdfDoc)
+        
+        val text = inputFile.readText()
+        val paragraph = Paragraph(text)
+        document.add(paragraph)
+        
+        document.close()
+    }
+
+    /**
+     * Converts a list of text strings into a PDF. Each string in the list creates a new page.
+     */
+    fun textPagesToPdf(pages: List<String>, destFile: File) {
+        val writer = PdfWriter(FileOutputStream(destFile))
+        val pdf = PdfDocument(writer)
+        val document = Document(pdf, PageSize.A4)
+        document.setMargins(36f, 36f, 36f, 36f)
+
+        try {
+            for ((index, pageText) in pages.withIndex()) {
+                val paragraph = Paragraph(pageText)
+                    .setFontSize(12f)
+                
+                document.add(paragraph)
+                
+                if (index < pages.size - 1) {
+                    document.add(AreaBreak(AreaBreakType.NEXT_PAGE))
+                }
+            }
+        } finally {
+            document.close()
+        }
     }
 }

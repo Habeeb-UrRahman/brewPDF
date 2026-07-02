@@ -20,4 +20,4 @@ brewPDF is open source software distributed under the GNU AGPL v3 license. Our s
 We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
 
 ## Contact Us
-If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at support@brewcreativestudio.com.
+If you have any questions or suggestions about our Privacy Policy, do not hesitate to contact us at rahman.habeeb@outlook.com.

@@ -47,6 +47,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.pdfmerger.app.ui.component.RenameDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +68,8 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
 
     fun handleUriSelection(uri: Uri) {
         selectedUri = uri
@@ -129,32 +132,8 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolExtract,
                     onActionClick = {
-                        isProcessing = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                            withContext(Dispatchers.IO) {
-                                val sortedPages = selectedPages.sorted().map { it + 1 } // 1-indexed
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "extracted_${timestamp}.pdf")
-                                PdfUtils.extractPages(cachedFile!!, outputFile, sortedPages)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "extracted_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "extracted_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Extraction failed"
-                        }
-                            isProcessing = false
-                        }
+                        suggestedOutputName = "extracted_$fileName"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -276,6 +255,43 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                     context.startActivity(android.content.Intent.createChooser(viewIntent, "Open with"))
                 }
             }
+        )
+    }
+
+    // Rename dialog
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val sortedPages = selectedPages.sorted().map { it + 1 }
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "extracted_${timestamp}.pdf")
+                            PdfUtils.extractPages(cachedFile!!, outputFile, sortedPages)
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            outputFile.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Extraction failed"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
         )
     }
 }

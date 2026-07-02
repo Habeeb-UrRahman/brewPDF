@@ -12,8 +12,8 @@ android {
         applicationId = "com.brewcreativestudio.brewpdf"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.0"
+        versionCode = 4
+        versionName = "2.1"
     }
 
     signingConfigs {
@@ -26,6 +26,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
@@ -91,6 +95,9 @@ dependencies {
     // iText 7 for PDF merging (AGPL)
     implementation("com.itextpdf:itext-core:8.0.5")
     implementation("com.itextpdf:bouncy-castle-adapter:8.0.5")
+
+    // ML Kit Document Scanner (on-device, via Play Services)
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

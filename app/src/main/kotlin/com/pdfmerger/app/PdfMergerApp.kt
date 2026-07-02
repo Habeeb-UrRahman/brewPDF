@@ -42,9 +42,32 @@ fun PdfMergerApp(
     val context = LocalContext.current
     var activeTool by remember { mutableStateOf<Tool?>(null) }
 
-    // ── Handle shared PDFs via intent ──
+    // ── Handle shared content via intent ──
     val sharedUris = viewModel.sharedUris.value
-    if (sharedUris.isNotEmpty()) {
+    val sharedMimeType = viewModel.sharedMimeType.value
+    val sharedAction = viewModel.sharedAction.value
+
+    // If viewing a PDF or sharing images, route directly
+    LaunchedEffect(sharedUris, sharedMimeType, sharedAction) {
+        if (sharedUris.isNotEmpty()) {
+            if (sharedAction == Intent.ACTION_VIEW) {
+                viewModel.pendingToolUris.value = sharedUris
+                viewModel.sharedUris.value = emptyList()
+                viewModel.sharedMimeType.value = ""
+                viewModel.sharedAction.value = ""
+                activeTool = Tool.PdfViewer
+            } else if (sharedMimeType.startsWith("image/")) {
+                viewModel.pendingToolUris.value = sharedUris
+                viewModel.sharedUris.value = emptyList()
+                viewModel.sharedMimeType.value = ""
+                viewModel.sharedAction.value = ""
+                activeTool = Tool.ImagesToPdf
+            }
+        }
+    }
+
+    // For PDFs (ACTION_SEND), show the disambiguation bottom sheet
+    if (sharedUris.isNotEmpty() && !sharedMimeType.startsWith("image/") && sharedAction != Intent.ACTION_VIEW) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.sharedUris.value = emptyList() },
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
@@ -125,19 +148,16 @@ fun PdfMergerApp(
                         )
                 }
             },
-            label = "screen_transition"
-        ) { tool ->
-            if (tool != null) {
-                ToolRouter(
-                    tool = tool,
-                    viewModel = viewModel,
-                    onBack = { activeTool = null }
-                )
+            label = "tool_transition"
+        ) { currentTool ->
+            if (currentTool == null) {
+                HomeScreen(onToolSelected = { activeTool = it })
             } else {
-                HomeScreen(
-                    onToolSelected = { selectedTool ->
-                        activeTool = selectedTool
-                    }
+                ToolRouter(
+                    tool = currentTool,
+                    viewModel = viewModel,
+                    onBack = { activeTool = null },
+                    onNavigateToTool = { activeTool = it }
                 )
             }
         }
@@ -201,14 +221,19 @@ private fun ShareOptionCard(
  * Routes to the correct tool screen based on selection.
  */
 @Composable
-private fun ToolRouter(tool: Tool, viewModel: MergeViewModel, onBack: () -> Unit) {
+private fun ToolRouter(
+    tool: Tool, 
+    viewModel: MergeViewModel, 
+    onBack: () -> Unit,
+    onNavigateToTool: (Tool) -> Unit
+) {
     val context = LocalContext.current
     val pendingUris = viewModel.pendingToolUris.value
     val initialUri = pendingUris.firstOrNull()
 
     // Clear pending URIs once injected to prevent stale data
     LaunchedEffect(tool) {
-        if (pendingUris.isNotEmpty()) {
+        if (pendingUris.isNotEmpty() && tool != Tool.PdfViewer) {
             viewModel.pendingToolUris.value = emptyList()
         }
     }
@@ -238,6 +263,18 @@ private fun ToolRouter(tool: Tool, viewModel: MergeViewModel, onBack: () -> Unit
         Tool.Watermark -> WatermarkScreen(initialUri = initialUri, onBack = onBack)
         Tool.PageNumbers -> PageNumbersScreen(initialUri = initialUri, onBack = onBack)
         Tool.Redact -> RedactScreen(initialUri = initialUri, onBack = onBack)
+        Tool.ScanDocument -> ScanDocumentScreen(onBack = onBack)
+        Tool.TextToPdf -> TextToPdfScreen(initialUri = initialUri, onBack = onBack)
+        Tool.PdfViewer -> PdfViewerScreen(
+            onBack = onBack,
+            viewModel = viewModel,
+            initialUri = initialUri,
+            onNavigateToTool = { targetTool ->
+                // The current viewer URI is already in pendingUris, so we don't clear it.
+                onNavigateToTool(targetTool)
+            }
+        )
+        Tool.PdfMaker -> PdfMakerScreen(onBack = onBack)
         Tool.Settings -> SettingsScreen(onBack = onBack)
     }
 }

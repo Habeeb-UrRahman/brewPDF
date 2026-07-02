@@ -44,6 +44,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.pdfmerger.app.ui.component.RenameDialog
 import sh.calvin.reorderable.ReorderableItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,6 +63,8 @@ fun PageEditorScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
 
     
     LaunchedEffect(initialUri) {
@@ -143,32 +146,8 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageEditor,
                     onActionClick = {
-                        isProcessing = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                            withContext(Dispatchers.IO) {
-                                val pagesOneBased = pageOrder.map { it + 1 }
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "edited_${timestamp}.pdf")
-                                PdfUtils.reorderAndDeletePages(cachedFile!!, outputFile, pagesOneBased)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "edited_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "edited_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Edit failed"
-                        }
-                            isProcessing = false
-                        }
+                        suggestedOutputName = "edited_$fileName"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -305,6 +284,42 @@ val filePicker = rememberLauncherForActivityResult(
                     context.startActivity(android.content.Intent.createChooser(viewIntent, "Open with"))
                 }
             }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val pagesOneBased = pageOrder.map { it + 1 }
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "edited_${timestamp}.pdf")
+                            PdfUtils.reorderAndDeletePages(cachedFile!!, outputFile, pagesOneBased)
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            outputFile.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Edit failed"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
         )
     }
 }

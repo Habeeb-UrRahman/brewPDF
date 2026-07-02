@@ -18,6 +18,7 @@ import com.pdfmerger.app.ui.component.BrewPickerPrompt
 import com.pdfmerger.app.ui.component.BrewScaffold
 import com.pdfmerger.app.ui.component.ToolResultSheet
 import com.pdfmerger.app.ui.theme.ToolPageNumbers
+import com.pdfmerger.app.ui.component.RenameDialog
 import com.pdfmerger.app.util.FileProviderUtil
 import com.pdfmerger.app.util.PdfUtils
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,8 @@ fun PageNumbersScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
 
     
     LaunchedEffect(initialUri) {
@@ -90,34 +93,8 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageNumbers,
                     onActionClick = {
-                        isProcessing = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "numbers_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "numbered_${timestamp}.pdf")
-                                PdfUtils.addPageNumbers(inputFile, outputFile)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "numbered_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "numbered_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                inputFile.delete()
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to add page numbers"
-                        }
-                            isProcessing = false
-                        }
+                        suggestedOutputName = "numbered_$fileName"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -179,6 +156,44 @@ val filePicker = rememberLauncherForActivityResult(
                     context.startActivity(android.content.Intent.createChooser(viewIntent, "Open with"))
                 }
             }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "numbers_input_${System.currentTimeMillis()}.pdf")
+                                ?: throw Exception("Failed to read file")
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "numbered_${timestamp}.pdf")
+                            PdfUtils.addPageNumbers(inputFile, outputFile)
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            inputFile.delete()
+                            outputFile.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Failed to add page numbers"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
         )
     }
 }

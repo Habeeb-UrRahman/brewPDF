@@ -43,9 +43,16 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
 
             SettingsItem(
-                icon = Icons.Outlined.DarkMode,
                 title = "App Theme",
-                subtitle = "Follows system setting automatically"
+                subtitle = "Follows system setting automatically",
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.DarkMode,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             )
 
             Text(
@@ -56,16 +63,36 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 16.dp)
             )
 
+            val context = LocalContext.current
+
             SettingsItem(
-                icon = Icons.Outlined.Security,
-                title = "Privacy & Offline",
-                subtitle = "100% offline processing. Your files never leave your device."
+                title = "Privacy Policy",
+                subtitle = "Read our Privacy Policy on GitHub",
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Habeeb-UrRahman/brewPDF/blob/main/PRIVACY_POLICY.md"))
+                    context.startActivity(intent)
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             )
 
             SettingsItem(
-                icon = Icons.Outlined.Info,
-                title = "brewPDF v2.0",
-                subtitle = "Built with ❤️ by Brew Creative Studio"
+                title = "brewPDF v2.1",
+                subtitle = "Built with ❤️ by Brew Creative Studio",
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             )
 
             Text(
@@ -76,25 +103,37 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 16.dp)
             )
 
-            val context = LocalContext.current
-
             SettingsItem(
-                icon = Icons.Outlined.Language,
                 title = "Website",
                 subtitle = "https://www.habeeburrahman.in",
                 onClick = {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.habeeburrahman.in"))
                     context.startActivity(intent)
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Language,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             )
 
             SettingsItem(
-                icon = Icons.Outlined.PlayArrow,
                 title = "YouTube",
                 subtitle = "https://www.youtube.com/@techbrewtv",
                 onClick = {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/@techbrewtv"))
                     context.startActivity(intent)
+                },
+                icon = {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(id = com.pdfmerger.app.R.drawable.ic_youtube),
+                        contentDescription = null,
+                        tint = androidx.compose.ui.graphics.Color.Unspecified,
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             )
         }
@@ -103,10 +142,10 @@ fun SettingsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun SettingsItem(
-    icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    icon: @Composable () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -124,12 +163,7 @@ private fun SettingsItem(
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(24.dp)
-            )
+            icon()
         }
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {

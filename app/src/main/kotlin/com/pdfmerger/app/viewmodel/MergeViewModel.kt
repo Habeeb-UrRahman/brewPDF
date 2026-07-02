@@ -61,6 +61,12 @@ class MergeViewModel : ViewModel() {
     /** URIs passed to a specific tool after disambiguation. */
     val pendingToolUris = mutableStateOf<List<Uri>>(emptyList())
 
+    /** MIME type of the shared content (e.g. "application/pdf" or "image/jpeg"). */
+    val sharedMimeType = mutableStateOf("")
+
+    /** Action of the intent (e.g. ACTION_SEND or ACTION_VIEW). */
+    val sharedAction = mutableStateOf("")
+
     companion object {
         private const val MAX_STAGING_SIZE_BYTES = 100L * 1024 * 1024 // 100MB
         private const val STATE_FILE_NAME = "staging_state.json"

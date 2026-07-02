@@ -48,8 +48,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Extracts PDF URIs from SEND / SEND_MULTIPLE intents and adds them
-     * to the ViewModel staging list.
+     * Extracts URIs from SEND / SEND_MULTIPLE intents and adds them
+     * to the ViewModel. Detects MIME type for routing (PDF vs images).
      */
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
@@ -57,6 +57,10 @@ class MainActivity : ComponentActivity() {
         val uris = mutableListOf<Uri>()
 
         when (intent.action) {
+            Intent.ACTION_VIEW -> {
+                intent.data?.let { uris.add(it) }
+            }
+            
             Intent.ACTION_SEND -> {
                 val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -91,6 +95,11 @@ class MainActivity : ComponentActivity() {
                 } catch (_: SecurityException) {
                 }
             }
+
+            // Detect MIME type for routing
+            val mimeType = intent.type ?: ""
+            viewModel.sharedMimeType.value = mimeType
+            viewModel.sharedAction.value = intent.action ?: ""
             viewModel.sharedUris.value = uris
         }
     }

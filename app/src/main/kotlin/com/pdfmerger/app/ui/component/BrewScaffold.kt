@@ -32,6 +32,7 @@ fun BrewScaffold(
     title: String,
     subtitle: String? = null,
     onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -63,6 +64,7 @@ fun BrewScaffold(
                         )
                     }
                 },
+                actions = actions,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )

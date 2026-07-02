@@ -34,6 +34,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.pdfmerger.app.ui.component.RenameDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +52,8 @@ fun UnlockScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
 
     
     LaunchedEffect(initialUri) {
@@ -101,34 +104,8 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolUnlock,
                     onActionClick = {
-                        isProcessing = true
-                        errorMessage = null
-                        scope.launch {
-                            try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "unlock_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "unlocked_${timestamp}.pdf")
-                                PdfUtils.unlockPdf(inputFile, outputFile, password)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "unlocked_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "unlocked_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
-                                }
-                                inputFile.delete()
-                                outputFile.delete()
-                            }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to unlock. Wrong password?"
-                        }
-                            isProcessing = false
-                        }
+                        suggestedOutputName = "unlocked_$fileName"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -213,6 +190,44 @@ val filePicker = rememberLauncherForActivityResult(
                     context.startActivity(android.content.Intent.createChooser(viewIntent, "Open with"))
                 }
             }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "unlock_input_${System.currentTimeMillis()}.pdf")
+                                ?: throw Exception("Failed to read file")
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "unlocked_${timestamp}.pdf")
+                            PdfUtils.unlockPdf(inputFile, outputFile, password)
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            inputFile.delete()
+                            outputFile.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Failed to unlock. Wrong password?"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
         )
     }
 }

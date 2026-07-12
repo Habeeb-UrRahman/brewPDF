@@ -7,6 +7,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -15,7 +16,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +46,11 @@ import com.pdfmerger.app.util.FileProviderUtil
 import com.pdfmerger.app.viewmodel.MergeViewModel
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import com.pdfmerger.app.util.PdfUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,14 +61,20 @@ fun StagingScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     
     val showDeleteConfirmation = remember { mutableStateOf(false) }
+    val showClearStageDialog = remember { mutableStateOf(false) }
+    val showSessionSelector = remember { mutableStateOf(false) }
 
     var pdfToUnlock by remember { mutableStateOf<PdfItem?>(null) }
     var pdfToView by remember { mutableStateOf<PdfItem?>(null) }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -91,6 +106,9 @@ fun StagingScreen(
     val maxSize = 100L * 1024 * 1024
     val progress = (totalSize.toFloat() / maxSize.toFloat()).coerceIn(0f, 1f)
 
+    val activeSession = viewModel.sessions.find { it.id == viewModel.activeSessionId.value }
+    val activeSessionName = activeSession?.name ?: "Merge Stage"
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -98,6 +116,8 @@ fun StagingScreen(
                 StagingTopBar(
                     scrollBehavior = scrollBehavior,
                     itemCount = viewModel.pdfItems.size,
+                    activeSessionName = activeSessionName,
+                    onSessionSelectorClick = { showSessionSelector.value = true },
                     onBack = onBack
                 )
                 // Animated Storage Gauge
@@ -113,7 +133,35 @@ fun StagingScreen(
                 onAddClick = { filePickerLauncher.launch(arrayOf("application/pdf")) },
                 onSortClick = { viewModel.toggleSort(context) },
                 onSaveClick = { viewModel.saveStagedToDownloads(context) },
-                onResetClick = { viewModel.reset(context) },
+                onResetClick = { 
+                    viewModel.reset(context)
+                    previewFile?.delete()
+                    previewFile = null
+                },
+                onPreviewClick = {
+                    val inputFiles = viewModel.pdfItems.mapNotNull { it.cachedFile }
+                    if (inputFiles.size >= 2 && !viewModel.pdfItems.any { it.isLocked }) {
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val outputFile = File(context.cacheDir, "preview_merged_${System.currentTimeMillis()}.pdf")
+                                PdfUtils.mergePdfs(inputFiles, outputFile)
+                                withContext(Dispatchers.Main) {
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                    showPreviewViewer = true
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    viewModel.snackbarMessage.value = "Failed to generate preview"
+                                }
+                            }
+                        }
+                    } else if (viewModel.pdfItems.any { it.isLocked }) {
+                        viewModel.snackbarMessage.value = "Please unlock all PDFs before previewing."
+                    } else {
+                        viewModel.snackbarMessage.value = "Add at least 2 PDFs to preview."
+                    }
+                },
                 onMergeClick = { viewModel.mergePdfs(context) },
                 isMerging = viewModel.isMerging.value
             )
@@ -242,12 +290,27 @@ fun StagingScreen(
         )
     }
 
+    if (showPreviewViewer && previewFile != null) {
+        PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Merged PDF",
+            onSave = {
+                showPreviewViewer = false
+                viewModel.mergePdfs(context) // Calling mergePdfs directly triggers the real save dialog
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
     viewModel.mergeResult.value?.let { result ->
         ToolResultSheet(
             title = "PDFs Merged Successfully!",
             result = result,
             sheetState = sheetState,
-            onDismiss = { viewModel.clearMergeResult() },
+            onDismiss = {
+                viewModel.clearMergeResult()
+                showClearStageDialog.value = true
+            },
             onShare = onShare,
             onOpen = onOpen,
             onDeleteOriginals = {
@@ -283,6 +346,226 @@ fun StagingScreen(
                 }
             }
         )
+    }
+
+    if (showClearStageDialog.value) {
+        AlertDialog(
+            onDismissRequest = { showClearStageDialog.value = false },
+            title = { Text("Clear Stage", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to remove all staged PDFs? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearStageDialog.value = false
+                        viewModel.reset(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BrewAmber,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Clear Stage", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearStageDialog.value = false }) {
+                    Text("Keep Files", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
+    }
+
+    if (showSessionSelector.value) {
+        SessionSelectorSheet(
+            viewModel = viewModel,
+            onDismiss = { showSessionSelector.value = false },
+            context = context
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SessionSelectorSheet(
+    viewModel: MergeViewModel,
+    onDismiss: () -> Unit,
+    context: android.content.Context,
+    isForShare: Boolean = false,
+    onSessionSelected: ((String, Boolean) -> Unit)? = null
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    var showNewSessionDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf<String?>(null) } // holds session ID to rename
+    var setAsDefault by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "Merge Stages",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+
+            if (isForShare) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { setAsDefault = !setAsDefault }
+                        .padding(horizontal = 24.dp, vertical = 8.dp)
+                ) {
+                    androidx.compose.material3.Checkbox(
+                        checked = setAsDefault,
+                        onCheckedChange = { setAsDefault = it }
+                    )
+                    Text("Set as default for 10 minutes", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+            ) {
+                items(viewModel.sessions.size) { index ->
+                    val session = viewModel.sessions[index]
+                    val isSelected = session.id == viewModel.activeSessionId.value
+                    
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            if (!isSelected || onSessionSelected != null) {
+                                viewModel.switchSession(session.id)
+                                if (onSessionSelected != null) {
+                                    onSessionSelected(session.id, setAsDefault)
+                                } else {
+                                    onDismiss()
+                                }
+                            }
+                        },
+                        headlineContent = { 
+                            Text(
+                                session.name, 
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) BrewAmber else MaterialTheme.colorScheme.onSurface
+                            ) 
+                        },
+                        supportingContent = {
+                            Text("${session.items.size} file${if (session.items.size != 1) "s" else ""}")
+                        },
+                        trailingContent = {
+                            Row {
+                                IconButton(onClick = { showRenameDialog = session.id }) {
+                                    Icon(Icons.Outlined.Edit, contentDescription = "Rename")
+                                }
+                                if (viewModel.sessions.size > 1) {
+                                    IconButton(onClick = { 
+                                        viewModel.deleteSession(session.id, context)
+                                        if (isSelected) onDismiss()
+                                    }) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete")
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { showNewSessionDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BrewAmber)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("New Stage")
+            }
+        }
+    }
+
+    if (showNewSessionDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showNewSessionDialog = false },
+            title = { Text("New Stage") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Stage Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (name.isNotBlank()) {
+                        viewModel.createNewSession(name.trim(), context)
+                        showNewSessionDialog = false
+                        if (onSessionSelected != null) {
+                            onSessionSelected(viewModel.activeSessionId.value!!, setAsDefault)
+                        } else {
+                            onDismiss()
+                        }
+                    }
+                }) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewSessionDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    showRenameDialog?.let { sessionId ->
+        val session = viewModel.sessions.find { it.id == sessionId }
+        if (session != null) {
+            var name by remember { mutableStateOf(session.name) }
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = null },
+                title = { Text("Rename Stage") },
+                text = {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Stage Name") },
+                        singleLine = true
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (name.isNotBlank()) {
+                            viewModel.renameSession(sessionId, name.trim(), context)
+                            showRenameDialog = null
+                        }
+                    }) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -337,6 +620,8 @@ fun StorageGauge(progress: Float, totalSize: Long) {
 private fun StagingTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
     itemCount: Int,
+    activeSessionName: String,
+    onSessionSelectorClick: () -> Unit,
     onBack: () -> Unit
 ) {
     LargeTopAppBar(
@@ -347,11 +632,24 @@ private fun StagingTopBar(
         },
         title = {
             Column {
-                Text(
-                    text = "Merge Stage",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onSessionSelectorClick)
+                        .padding(end = 8.dp, top = 4.dp, bottom = 4.dp)
+                ) {
+                    Text(
+                        text = activeSessionName,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Switch Stage"
+                    )
+                }
                 if (itemCount > 0) {
                     Text(
                         text = "$itemCount file${if (itemCount != 1) "s" else ""} staged",

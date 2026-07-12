@@ -65,6 +65,9 @@ fun PageEditorScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     
     LaunchedEffect(initialUri) {
@@ -140,8 +143,30 @@ val filePicker = rememberLauncherForActivityResult(
                         cachedFile = null
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Process PDF",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val pagesOneBased = pageOrder.map { it + 1 }
+                                    val outputFile = File(context.cacheDir, "preview_edited_${System.currentTimeMillis()}.pdf")
+                                    PdfUtils.reorderAndDeletePages(cachedFile!!, outputFile, pagesOneBased)
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save PDF",
                     isActionEnabled = pageOrder.isNotEmpty() && !isProcessing && !isDone,
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageEditor,
@@ -250,8 +275,20 @@ val filePicker = rememberLauncherForActivityResult(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            
         }
+    }
+
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Page Editor",
+            onSave = {
+                showPreviewViewer = false
+                suggestedOutputName = "edited_$fileName"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
     }
 
     mergeResult?.let { result ->
@@ -311,6 +348,7 @@ val filePicker = rememberLauncherForActivityResult(
                                 )
                             }
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

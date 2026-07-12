@@ -36,11 +36,16 @@ import com.pdfmerger.app.viewmodel.MergeViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PdfMergerApp(
-    viewModel: MergeViewModel = viewModel()
-) {
+fun PdfMergerApp(viewModel: MergeViewModel = viewModel()) {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("brewPDF_prefs", Context.MODE_PRIVATE)
+
+    LaunchedEffect(Unit) {
+        viewModel.loadState(context)
+    }
+
     var activeTool by remember { mutableStateOf<Tool?>(null) }
+    var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("has_seen_onboarding_v2_1", false)) }
 
     // ── Handle shared content via intent ──
     val sharedUris = viewModel.sharedUris.value
@@ -65,6 +70,8 @@ fun PdfMergerApp(
             }
         }
     }
+
+    var showStageSelectorForShare by remember { mutableStateOf(false) }
 
     // For PDFs (ACTION_SEND), show the disambiguation bottom sheet
     if (sharedUris.isNotEmpty() && !sharedMimeType.startsWith("image/") && sharedAction != Intent.ACTION_VIEW) {
@@ -95,9 +102,20 @@ fun PdfMergerApp(
                     subtitle = "Combine with other PDFs",
                     accentColor = BrewAmber,
                     onClick = {
-                        viewModel.addPdfs(sharedUris, context)
-                        viewModel.sharedUris.value = emptyList()
-                        activeTool = Tool.Merge
+                        val currentDefaultId = prefs.getString("temp_default_session_id", null)
+                        val expiry = prefs.getLong("temp_default_session_expiry", 0L)
+                        val isValid = currentDefaultId != null && 
+                            System.currentTimeMillis() < expiry &&
+                            viewModel.sessions.any { it.id == currentDefaultId }
+                        
+                        if (isValid) {
+                            viewModel.switchSession(currentDefaultId!!)
+                            viewModel.addPdfs(sharedUris, context)
+                            viewModel.sharedUris.value = emptyList()
+                            activeTool = Tool.Merge
+                        } else {
+                            showStageSelectorForShare = true
+                        }
                     }
                 )
 
@@ -117,7 +135,41 @@ fun PdfMergerApp(
         }
     }
 
+    if (showStageSelectorForShare) {
+        com.pdfmerger.app.ui.screen.SessionSelectorSheet(
+            viewModel = viewModel,
+            onDismiss = { showStageSelectorForShare = false },
+            context = context,
+            isForShare = true,
+            onSessionSelected = { sessionId, setAsDefault ->
+                showStageSelectorForShare = false
+                
+                if (setAsDefault) {
+                    prefs.edit()
+                        .putString("temp_default_session_id", sessionId)
+                        .putLong("temp_default_session_expiry", System.currentTimeMillis() + 10 * 60 * 1000)
+                        .apply()
+                }
+                
+                viewModel.addPdfs(sharedUris, context)
+                viewModel.sharedUris.value = emptyList()
+                activeTool = Tool.Merge
+            }
+        )
+    }
+
     PdfMergerTheme {
+        Crossfade(
+            targetState = showOnboarding,
+            animationSpec = tween(500),
+            label = "onboarding_gate"
+        ) { isOnboarding ->
+            if (isOnboarding) {
+                WelcomeScreen(onFinished = {
+                    prefs.edit().putBoolean("has_seen_onboarding_v2_1", true).apply()
+                    showOnboarding = false
+                })
+            } else {
         BackHandler(enabled = activeTool != null) {
             activeTool = null
         }
@@ -157,10 +209,16 @@ fun PdfMergerApp(
                     tool = currentTool,
                     viewModel = viewModel,
                     onBack = { activeTool = null },
-                    onNavigateToTool = { activeTool = it }
+                    onNavigateToTool = { activeTool = it },
+                    onShowWelcome = { 
+                        activeTool = null 
+                        showOnboarding = true 
+                    }
                 )
             }
         }
+            } // else
+        } // Crossfade
     }
 }
 
@@ -225,7 +283,8 @@ private fun ToolRouter(
     tool: Tool, 
     viewModel: MergeViewModel, 
     onBack: () -> Unit,
-    onNavigateToTool: (Tool) -> Unit
+    onNavigateToTool: (Tool) -> Unit,
+    onShowWelcome: () -> Unit
 ) {
     val context = LocalContext.current
     val pendingUris = viewModel.pendingToolUris.value
@@ -255,6 +314,7 @@ private fun ToolRouter(
         )
         Tool.Compress -> CompressScreen(initialUri = initialUri, onBack = onBack)
         Tool.Extract -> ExtractScreen(initialUri = initialUri, onBack = onBack)
+        Tool.Split -> SplitScreen(initialUri = initialUri, onBack = onBack)
         Tool.ImagesToPdf -> ImagesToPdfScreen(initialUris = pendingUris, onBack = onBack)
         Tool.Encrypt -> EncryptScreen(initialUri = initialUri, onBack = onBack)
         Tool.PageEditor -> PageEditorScreen(initialUri = initialUri, onBack = onBack)
@@ -275,7 +335,9 @@ private fun ToolRouter(
             }
         )
         Tool.PdfMaker -> PdfMakerScreen(onBack = onBack)
-        Tool.Settings -> SettingsScreen(onBack = onBack)
+        Tool.Ocr -> { /* Coming soon, handled by HomeScreen toast */ onBack() }
+
+        Tool.Settings -> SettingsScreen(onBack = onBack, onShowWelcome = onShowWelcome)
     }
 }
 

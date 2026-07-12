@@ -53,6 +53,9 @@ fun TextToPdfScreen(onBack: () -> Unit, initialUri: Uri? = null) {
     
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -83,11 +86,35 @@ fun TextToPdfScreen(onBack: () -> Unit, initialUri: Uri? = null) {
                         selectedUri = null 
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
                     leftIcon = Icons.Outlined.FolderOpen,
                     leftContentDesc = "Change File",
                     onLeftClick = { filePickerLauncher.launch("text/plain") },
-                    actionText = "Convert to PDF",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "preview_text_${System.currentTimeMillis()}.txt")
+                                        ?: throw Exception("Failed to read file")
+                                    val outputFile = File(context.cacheDir, "preview_text_to_pdf_${System.currentTimeMillis()}.pdf")
+                                    PdfUtils.textToPdf(inputFile, outputFile)
+                                    inputFile.delete()
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = "Save PDF",
                     isActionEnabled = selectedUri != null,
                     isProcessing = isProcessing,
                     actionColor = ToolMerge,
@@ -171,6 +198,20 @@ fun TextToPdfScreen(onBack: () -> Unit, initialUri: Uri? = null) {
         Spacer(modifier = Modifier.weight(1f))
     }
 
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Text to PDF",
+            onSave = {
+                showPreviewViewer = false
+                val baseName = if (fileName.contains(".")) fileName.substringBeforeLast(".") else fileName
+                suggestedOutputName = "${baseName}.pdf"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
     if (showRenameDialog) {
         RenameDialog(
             suggestedName = suggestedOutputName,
@@ -202,6 +243,7 @@ fun TextToPdfScreen(onBack: () -> Unit, initialUri: Uri? = null) {
                             
                             inputFile.delete()
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

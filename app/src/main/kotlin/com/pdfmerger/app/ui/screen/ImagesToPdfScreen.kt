@@ -57,6 +57,9 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     fun handleUriSelection(uris: List<Uri>) {
         if (uris.isNotEmpty()) {
@@ -109,8 +112,34 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
                         thumbnails = emptyList()
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Create PDF",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val imageFiles = selectedUris.mapNotNull { uri ->
+                                        val name = "img_${System.currentTimeMillis()}_${selectedUris.indexOf(uri)}.jpg"
+                                        FileProviderUtil.copyUriToStaging(context, uri, name)
+                                    }
+                                    val outputFile = File(context.cacheDir, "preview_images_${System.currentTimeMillis()}.pdf")
+                                    PdfUtils.imagesToPdf(imageFiles, outputFile)
+                                    imageFiles.forEach { it.delete() }
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save PDF",
                     isActionEnabled = !isProcessing && !isDone,
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolImagesToPdf,
@@ -213,6 +242,20 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
         )
     }
 
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Images to PDF",
+            onSave = {
+                showPreviewViewer = false
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                suggestedOutputName = "images_${timestamp}.pdf"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
     if (showRenameDialog) {
         RenameDialog(
             suggestedName = suggestedOutputName,
@@ -241,6 +284,7 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
                             }
                             imageFiles.forEach { it.delete() }
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

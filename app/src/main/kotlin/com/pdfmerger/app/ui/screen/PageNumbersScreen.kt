@@ -45,6 +45,9 @@ fun PageNumbersScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     
     LaunchedEffect(initialUri) {
@@ -84,11 +87,34 @@ val filePicker = rememberLauncherForActivityResult(
                     showClearButton = true,
                     onClearClick = {
                         selectedUri = null
-                        
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Add Numbers",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "preview_numbers_input_${System.currentTimeMillis()}.pdf")
+                                        ?: throw Exception("Failed to read file")
+                                    val outputFile = File(context.cacheDir, "preview_numbered_${System.currentTimeMillis()}.pdf")
+                                    PdfUtils.addPageNumbers(inputFile, outputFile)
+                                    inputFile.delete()
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save PDF",
                     isActionEnabled = !isProcessing && !isDone,
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageNumbers,
@@ -122,8 +148,20 @@ val filePicker = rememberLauncherForActivityResult(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            
         }
+    }
+
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Page Numbers",
+            onSave = {
+                showPreviewViewer = false
+                suggestedOutputName = "numbered_$fileName"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
     }
 
     mergeResult?.let { result ->
@@ -185,6 +223,7 @@ val filePicker = rememberLauncherForActivityResult(
                             }
                             inputFile.delete()
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

@@ -45,6 +45,9 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
+
     fun handleUriSelection(uri: Uri) {
         selectedUri = uri
         fileName = FileProviderUtil.getFileName(context, uri)
@@ -52,6 +55,8 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
         isDone = false
         errorMessage = null
         textToRedact = ""
+        previewFile?.delete()
+        previewFile = null
     }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -84,6 +89,32 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                         textToRedact = ""
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
+                    },
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "preview_input_${System.currentTimeMillis()}.pdf")
+                                        ?: throw Exception("Failed to read file")
+                                    val outputFile = File(context.cacheDir, "preview_redacted_${System.currentTimeMillis()}.pdf")
+                                    
+                                    PdfUtils.redactText(inputFile, outputFile, textToRedact)
+                                    
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                    inputFile.delete()
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
                     },
                     actionText = if (isDone) "Done ✓" else "Redact Words",
                     isActionEnabled = textToRedact.isNotEmpty() && !isProcessing && !isDone,
@@ -94,28 +125,29 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                         errorMessage = null
                         scope.launch {
                             try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "redact_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "redacted_${timestamp}.pdf")
-                                PdfUtils.redactText(inputFile, outputFile, textToRedact)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "redacted_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "redacted_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
-                                    )
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "redact_input_${System.currentTimeMillis()}.pdf")
+                                        ?: throw Exception("Failed to read file")
+                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                                    val outputFile = File(context.cacheDir, "redacted_${timestamp}.pdf")
+                                    PdfUtils.redactText(inputFile, outputFile, textToRedact)
+                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "redacted_$fileName")
+                                    if (resultUri != null) {
+                                        mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                            fileName = "redacted_$fileName",
+                                            fileSize = outputFile.length(),
+                                            outputUri = resultUri,
+                                            localFile = outputFile
+                                        )
+                                    }
+                                    inputFile.delete()
+                                    outputFile.delete()
+                                    previewFile?.delete()
                                 }
-                                inputFile.delete()
-                                outputFile.delete()
+                                isDone = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to redact text"
                             }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to redact text"
-                        }
                             isProcessing = false
                         }
                     }
@@ -160,6 +192,46 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
 
             
         }
+    }
+
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - ${fileName}",
+            onSave = {
+                showPreviewViewer = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val finalFile = previewFile!!
+                            val resultUri = FileProviderUtil.saveToDownloads(context, finalFile, "redacted_$fileName")
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = "redacted_$fileName",
+                                    fileSize = finalFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = finalFile
+                                )
+                            }
+                            // Clean up
+                            previewFile?.delete()
+                            previewFile = null
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Failed to save redacted file"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = {
+                showPreviewViewer = false
+                previewFile?.delete()
+                previewFile = null
+            }
+        )
     }
 
     mergeResult?.let { result ->

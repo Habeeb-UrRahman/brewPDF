@@ -32,13 +32,29 @@ data class MergeResult(
 )
 
 /**
+ * Represents a persistent staging session.
+ */
+data class StagingSession(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val items: List<PdfItem>,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+/**
  * ViewModel managing the staging list of PDFs and the merge operation.
  * State survives configuration changes and backgrounding (retained ViewModel).
  */
 class MergeViewModel : ViewModel() {
 
-    /** Mutable staging list — observed by Compose UI. */
+    /** Mutable staging list — observed by Compose UI. Represents the active session's items. */
     val pdfItems = mutableStateListOf<PdfItem>()
+
+    /** The list of all saved staging sessions. */
+    val sessions = mutableStateListOf<StagingSession>()
+
+    /** The currently active session ID. */
+    val activeSessionId = mutableStateOf<String?>(null)
 
     /** True while a merge is in progress. */
     val isMerging = mutableStateOf(false)
@@ -70,49 +86,105 @@ class MergeViewModel : ViewModel() {
     companion object {
         private const val MAX_STAGING_SIZE_BYTES = 100L * 1024 * 1024 // 100MB
         private const val STATE_FILE_NAME = "staging_state.json"
+        private const val SESSIONS_FILE_NAME = "sessions_state.json"
     }
+
+    /** Tracks if state has been loaded to prevent redundant disk reads. */
+    var isStateLoaded = false
+        private set
 
     /**
      * Loads the persistent staging state from a JSON file in the app's filesDir.
      */
     fun loadState(context: Context) {
+        if (isStateLoaded) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val stateFile = File(context.filesDir, STATE_FILE_NAME)
-                if (stateFile.exists()) {
-                    val jsonStr = stateFile.readText()
+                val loadedSessions = mutableListOf<StagingSession>()
+                val sessionsFile = File(context.filesDir, SESSIONS_FILE_NAME)
+                
+                if (sessionsFile.exists()) {
+                    val jsonStr = sessionsFile.readText()
                     val jsonArray = JSONArray(jsonStr)
-                    val loadedItems = mutableListOf<PdfItem>()
                     for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val id = obj.optString("id", UUID.randomUUID().toString())
-                        val uriStr = obj.getString("uri")
-                        val cachedFilePath = obj.optString("cachedFile", "")
-                        val fileName = obj.getString("fileName")
-                        val fileSize = obj.getLong("fileSize")
-                        val pageCount = obj.getInt("pageCount")
-                        val isLocked = obj.optBoolean("isLocked", false)
+                        val sessionObj = jsonArray.getJSONObject(i)
+                        val id = sessionObj.getString("id")
+                        val name = sessionObj.getString("name")
+                        val createdAt = sessionObj.optLong("createdAt", System.currentTimeMillis())
+                        val itemsArray = sessionObj.getJSONArray("items")
+                        
+                        val sessionItems = mutableListOf<PdfItem>()
+                        for (j in 0 until itemsArray.length()) {
+                            val itemObj = itemsArray.getJSONObject(j)
+                            val itemId = itemObj.optString("id", UUID.randomUUID().toString())
+                            val uriStr = itemObj.getString("uri")
+                            val cachedFilePath = itemObj.optString("cachedFile", "")
+                            val fileName = itemObj.getString("fileName")
+                            val fileSize = itemObj.getLong("fileSize")
+                            val pageCount = itemObj.getInt("pageCount")
+                            val isLocked = itemObj.optBoolean("isLocked", false)
 
-                        val cachedFile = if (cachedFilePath.isNotEmpty()) File(cachedFilePath) else null
-                        // Only add if the file actually exists
-                        if (cachedFile != null && cachedFile.exists()) {
-                            loadedItems.add(
-                                PdfItem(
-                                    id = id,
-                                    uri = Uri.parse(uriStr),
-                                    cachedFile = cachedFile,
-                                    fileName = fileName,
-                                    fileSize = fileSize,
-                                    pageCount = pageCount,
-                                    isLocked = isLocked
+                            val cachedFile = if (cachedFilePath.isNotEmpty()) File(cachedFilePath) else null
+                            if (cachedFile != null && cachedFile.exists()) {
+                                sessionItems.add(
+                                    PdfItem(
+                                        id = itemId,
+                                        uri = Uri.parse(uriStr),
+                                        cachedFile = cachedFile,
+                                        fileName = fileName,
+                                        fileSize = fileSize,
+                                        pageCount = pageCount,
+                                        isLocked = isLocked
+                                    )
                                 )
-                            )
+                            }
+                        }
+                        loadedSessions.add(StagingSession(id, name, sessionItems, createdAt))
+                    }
+                } else {
+                    // Backwards compatibility migration
+                    val oldStateFile = File(context.filesDir, STATE_FILE_NAME)
+                    val oldItems = mutableListOf<PdfItem>()
+                    if (oldStateFile.exists()) {
+                        val jsonStr = oldStateFile.readText()
+                        val jsonArray = JSONArray(jsonStr)
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            val id = obj.optString("id", UUID.randomUUID().toString())
+                            val uriStr = obj.getString("uri")
+                            val cachedFilePath = obj.optString("cachedFile", "")
+                            val fileName = obj.getString("fileName")
+                            val fileSize = obj.getLong("fileSize")
+                            val pageCount = obj.getInt("pageCount")
+                            val isLocked = obj.optBoolean("isLocked", false)
+
+                            val cachedFile = if (cachedFilePath.isNotEmpty()) File(cachedFilePath) else null
+                            if (cachedFile != null && cachedFile.exists()) {
+                                oldItems.add(
+                                    PdfItem(
+                                        id = id,
+                                        uri = Uri.parse(uriStr),
+                                        cachedFile = cachedFile,
+                                        fileName = fileName,
+                                        fileSize = fileSize,
+                                        pageCount = pageCount,
+                                        isLocked = isLocked
+                                    )
+                                )
+                            }
                         }
                     }
-                    withContext(Dispatchers.Main) {
-                        pdfItems.clear()
-                        pdfItems.addAll(loadedItems)
+                    val defaultSession = StagingSession(name = "Default Stage", items = oldItems)
+                    loadedSessions.add(defaultSession)
+                }
+
+                withContext(Dispatchers.Main) {
+                    sessions.clear()
+                    sessions.addAll(loadedSessions)
+                    if (sessions.isNotEmpty()) {
+                        switchSession(sessions.first().id)
                     }
+                    isStateLoaded = true
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -121,27 +193,47 @@ class MergeViewModel : ViewModel() {
     }
 
     /**
-     * Saves the current staging state to a JSON file.
+     * Syncs current UI state into the active session and saves to disk.
      */
-    private fun saveState(context: Context) {
+    fun saveState(context: Context) {
+        val currentSessionId = activeSessionId.value ?: return
+        
+        // Update active session in memory
+        val sessionIndex = sessions.indexOfFirst { it.id == currentSessionId }
+        if (sessionIndex != -1) {
+            val updatedSession = sessions[sessionIndex].copy(items = pdfItems.toList())
+            sessions[sessionIndex] = updatedSession
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val jsonArray = JSONArray()
-                // Use a snapshot of current items
-                val itemsSnapshot = pdfItems.toList()
-                for (item in itemsSnapshot) {
-                    val obj = JSONObject().apply {
-                        put("id", item.id)
-                        put("uri", item.uri.toString())
-                        put("cachedFile", item.cachedFile?.absolutePath ?: "")
-                        put("fileName", item.fileName)
-                        put("fileSize", item.fileSize)
-                        put("pageCount", item.pageCount)
-                        put("isLocked", item.isLocked)
+                // Use a snapshot of current sessions
+                val sessionsSnapshot = sessions.toList()
+                for (session in sessionsSnapshot) {
+                    val sessionObj = JSONObject().apply {
+                        put("id", session.id)
+                        put("name", session.name)
+                        put("createdAt", session.createdAt)
+                        
+                        val itemsArray = JSONArray()
+                        for (item in session.items) {
+                            val itemObj = JSONObject().apply {
+                                put("id", item.id)
+                                put("uri", item.uri.toString())
+                                put("cachedFile", item.cachedFile?.absolutePath ?: "")
+                                put("fileName", item.fileName)
+                                put("fileSize", item.fileSize)
+                                put("pageCount", item.pageCount)
+                                put("isLocked", item.isLocked)
+                            }
+                            itemsArray.put(itemObj)
+                        }
+                        put("items", itemsArray)
                     }
-                    jsonArray.put(obj)
+                    jsonArray.put(sessionObj)
                 }
-                val stateFile = File(context.filesDir, STATE_FILE_NAME)
+                val stateFile = File(context.filesDir, SESSIONS_FILE_NAME)
                 stateFile.writeText(jsonArray.toString())
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -149,9 +241,57 @@ class MergeViewModel : ViewModel() {
         }
     }
 
+    /** Switches the active session. */
+    fun switchSession(sessionId: String) {
+        val session = sessions.find { it.id == sessionId }
+        if (session != null) {
+            activeSessionId.value = session.id
+            pdfItems.clear()
+            pdfItems.addAll(session.items)
+            applySort()
+        }
+    }
+
+    /** Creates a new session. */
+    fun createNewSession(name: String, context: Context) {
+        val newSession = StagingSession(name = name, items = emptyList())
+        sessions.add(newSession)
+        switchSession(newSession.id)
+        saveState(context)
+    }
+
+    /** Renames a session. */
+    fun renameSession(sessionId: String, newName: String, context: Context) {
+        val index = sessions.indexOfFirst { it.id == sessionId }
+        if (index != -1) {
+            sessions[index] = sessions[index].copy(name = newName)
+            saveState(context)
+        }
+    }
+
+    /** Deletes a session and its cached files. */
+    fun deleteSession(sessionId: String, context: Context) {
+        if (sessions.size <= 1) {
+            snackbarMessage.value = "Cannot delete the last remaining stage."
+            return
+        }
+        val sessionToDelete = sessions.find { it.id == sessionId } ?: return
+        
+        // Delete cached files
+        sessionToDelete.items.forEach { it.cachedFile?.delete() }
+        
+        sessions.remove(sessionToDelete)
+        
+        // If we deleted the active session, switch to the first available one
+        if (activeSessionId.value == sessionId) {
+            switchSession(sessions.first().id)
+        }
+        saveState(context)
+    }
+
     /**
      * Adds PDFs from a list of content:// URIs.
-     * Enforces a 50MB max combined size.
+     * Enforces a 100MB max combined size.
      */
     fun addPdfs(uris: List<Uri>, context: Context) {
         if (uris.isEmpty()) return
@@ -205,7 +345,7 @@ class MergeViewModel : ViewModel() {
                 isLoading.value = false
                 
                 if (rejectedDueToSize) {
-                    snackbarMessage.value = "Some files were rejected to stay under the 50MB limit."
+                    snackbarMessage.value = "Some files were rejected to stay under the 100MB limit."
                 }
             }
         }
@@ -305,8 +445,7 @@ class MergeViewModel : ViewModel() {
                             outputUri = resultUri,
                             localFile = tempOutput
                         )
-                        // Clear list after successful merge
-                        reset(context)
+                        // Stage is NOT cleared automatically — user decides via "Clear Stage?" dialog
                     } else {
                         snackbarMessage.value = "Failed to save merged PDF."
                     }
@@ -369,11 +508,51 @@ class MergeViewModel : ViewModel() {
     }
 
     private fun applySort() {
-        if (sortAscending.value) {
-            pdfItems.sortBy { it.fileName.lowercase(Locale.getDefault()) }
-        } else {
-            pdfItems.sortByDescending { it.fileName.lowercase(Locale.getDefault()) }
+        val comparator = if (sortAscending.value) naturalComparator else naturalComparator.reversed()
+        pdfItems.sortWith(comparator)
+    }
+
+    /**
+     * Natural/alphanumeric comparator that splits filenames into text and
+     * numeric chunks so "INV_100" sorts after "INV_99" instead of before it.
+     */
+    private val naturalComparator = Comparator<PdfItem> { a, b ->
+        naturalCompare(a.fileName.lowercase(Locale.getDefault()), b.fileName.lowercase(Locale.getDefault()))
+    }
+
+    private fun naturalCompare(a: String, b: String): Int {
+        val chunksA = splitIntoChunks(a)
+        val chunksB = splitIntoChunks(b)
+        for (i in 0 until minOf(chunksA.size, chunksB.size)) {
+            val chunkA = chunksA[i]
+            val chunkB = chunksB[i]
+            val numA = chunkA.toBigIntegerOrNull()
+            val numB = chunkB.toBigIntegerOrNull()
+            val cmp = if (numA != null && numB != null) {
+                numA.compareTo(numB)
+            } else {
+                chunkA.compareTo(chunkB)
+            }
+            if (cmp != 0) return cmp
         }
+        return chunksA.size - chunksB.size
+    }
+
+    private fun splitIntoChunks(s: String): List<String> {
+        val chunks = mutableListOf<String>()
+        val sb = StringBuilder()
+        var wasDigit = false
+        for (c in s) {
+            val isDigit = c.isDigit()
+            if (sb.isNotEmpty() && isDigit != wasDigit) {
+                chunks.add(sb.toString())
+                sb.clear()
+            }
+            sb.append(c)
+            wasDigit = isDigit
+        }
+        if (sb.isNotEmpty()) chunks.add(sb.toString())
+        return chunks
     }
 
     fun deleteSourceFiles(context: Context) {

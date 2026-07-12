@@ -4,9 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,6 +24,8 @@ fun ToolBottomBar(
     leftContentDesc: String? = null,
     showClearButton: Boolean = false,
     onClearClick: (() -> Unit)? = null,
+    showPreviewButton: Boolean = false,
+    onPreviewClick: (() -> Unit)? = null,
     actionText: String,
     actionIcon: ImageVector? = null,
     isActionEnabled: Boolean,
@@ -69,6 +71,21 @@ fun ToolBottomBar(
                             imageVector = Icons.Outlined.DeleteOutline,
                             contentDescription = "Clear",
                             tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                
+                if (showPreviewButton && onPreviewClick != null) {
+                    IconButton(
+                        onClick = onPreviewClick,
+                        enabled = isActionEnabled && !isProcessing,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Visibility,
+                            contentDescription = "Preview",
+                            tint = if (isActionEnabled && !isProcessing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                             modifier = Modifier.size(22.dp)
                         )
                     }

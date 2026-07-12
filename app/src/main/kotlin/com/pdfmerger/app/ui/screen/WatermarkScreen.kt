@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FontDownload
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -29,6 +31,24 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import com.itextpdf.kernel.colors.ColorConstants
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import com.pdfmerger.app.ui.component.RenameDialog
+
+data class WatermarkColor(val name: String, val composeColor: Color, val iTextColor: com.itextpdf.kernel.colors.Color)
+
+val availableColors = listOf(
+    WatermarkColor("Red", Color(0xFFE53935), ColorConstants.RED),
+    WatermarkColor("Black", Color(0xFF212121), ColorConstants.BLACK),
+    WatermarkColor("Blue", Color(0xFF1E88E5), ColorConstants.BLUE),
+    WatermarkColor("Gray", Color(0xFF757575), ColorConstants.GRAY)
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
@@ -38,14 +58,27 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var fileName by remember { mutableStateOf("") }
     var fileSize by remember { mutableStateOf(0L) }
+    
+    var applyToAll by remember { mutableStateOf(true) }
     var watermarkText by remember { mutableStateOf("") }
+    var customRules by remember { mutableStateOf(listOf(Pair("", ""))) }
+    
+    var watermarkOpacity by remember { mutableFloatStateOf(0.3f) }
+    var watermarkFontSize by remember { mutableFloatStateOf(80f) }
+    var selectedColor by remember { mutableStateOf(availableColors[0]) }
+    
     var isProcessing by remember { mutableStateOf(false) }
     var isDone by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var mergeResult by remember { mutableStateOf<com.pdfmerger.app.viewmodel.MergeResult?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
     
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
+
     LaunchedEffect(initialUri) {
         if (initialUri != null && selectedUri == null) {
             val uri = initialUri
@@ -56,10 +89,12 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
             isDone = false
             errorMessage = null
             watermarkText = ""
-        
+            customRules = listOf(Pair("", ""))
+            applyToAll = true
         }
     }
-val filePicker = rememberLauncherForActivityResult(
+    
+    val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
@@ -69,12 +104,42 @@ val filePicker = rememberLauncherForActivityResult(
             isDone = false
             errorMessage = null
             watermarkText = ""
+            customRules = listOf(Pair("", ""))
+            applyToAll = true
         }
+    }
+
+    fun parseWatermarkRules(rules: List<Pair<String, String>>): Map<Int, String> {
+        val map = mutableMapOf<Int, String>()
+        for (rule in rules) {
+            val text = rule.second
+            if (text.isBlank()) continue
+            val parts = rule.first.split(",")
+            for (part in parts) {
+                val p = part.trim()
+                if (p.contains("-")) {
+                    val range = p.split("-")
+                    if (range.size == 2) {
+                        val start = range[0].toIntOrNull() ?: continue
+                        val end = range[1].toIntOrNull() ?: continue
+                        for (i in start..end) {
+                            map[i] = text
+                        }
+                    }
+                } else {
+                    val pInt = p.toIntOrNull()
+                    if (pInt != null) {
+                        map[pInt] = text
+                    }
+                }
+            }
+        }
+        return map
     }
 
     BrewScaffold(
         title = "Watermark PDF",
-        subtitle = "Add a text overlay across all pages",
+        subtitle = "Add a text overlay to pages",
         onBack = onBack,
         bottomBar = {
             if (selectedUri != null) {
@@ -86,42 +151,53 @@ val filePicker = rememberLauncherForActivityResult(
                     onClearClick = {
                         selectedUri = null
                         watermarkText = ""
+                        customRules = listOf(Pair("", ""))
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Add Watermark",
-                    isActionEnabled = watermarkText.isNotEmpty() && !isProcessing && !isDone,
-                    isProcessing = isProcessing,
-                    actionColor = com.pdfmerger.app.ui.theme.ToolWatermark,
-                    onActionClick = {
+                    showPreviewButton = true,
+                    onPreviewClick = {
                         isProcessing = true
                         errorMessage = null
                         scope.launch {
                             try {
-                            withContext(Dispatchers.IO) {
-                                val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "watermark_input_${System.currentTimeMillis()}.pdf")
-                                    ?: throw Exception("Failed to read file")
-                                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                val outputFile = File(context.cacheDir, "watermarked_${timestamp}.pdf")
-                                PdfUtils.addTextWatermark(inputFile, outputFile, watermarkText)
-                                val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "watermarked_$fileName")
-                                if (resultUri != null) {
-                                    mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                        fileName = "watermarked_$fileName",
-                                        fileSize = outputFile.length(),
-                                        outputUri = resultUri,
-                                        localFile = outputFile
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "preview_input_${System.currentTimeMillis()}.pdf")
+                                        ?: throw Exception("Failed to read file")
+                                    val outputFile = File(context.cacheDir, "preview_watermarked_${System.currentTimeMillis()}.pdf")
+                                    
+                                    val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
+                                    val defaultTxt = if (applyToAll) watermarkText else null
+                                    
+                                    PdfUtils.addTextWatermark(
+                                        inputFile = inputFile,
+                                        outputFile = outputFile,
+                                        defaultText = defaultTxt,
+                                        customTextMap = customMap,
+                                        color = selectedColor.iTextColor,
+                                        opacity = watermarkOpacity,
+                                        fontSize = watermarkFontSize
                                     )
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                    inputFile.delete()
                                 }
-                                inputFile.delete()
-                                outputFile.delete()
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
                             }
-                            isDone = true
-                        } catch (e: Exception) {
-                            errorMessage = e.localizedMessage ?: "Failed to apply watermark"
-                        }
                             isProcessing = false
                         }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save Watermark",
+                    isActionEnabled = (applyToAll && watermarkText.isNotEmpty()) || (!applyToAll && customRules.any { it.first.isNotEmpty() && it.second.isNotEmpty() }),
+                    isProcessing = isProcessing,
+                    actionColor = ToolWatermark,
+                    onActionClick = {
+                        suggestedOutputName = "watermarked_$fileName"
+                        showRenameDialog = true
                     }
                 )
             }
@@ -141,17 +217,108 @@ val filePicker = rememberLauncherForActivityResult(
             Spacer(modifier = Modifier.height(24.dp))
             BrewFileCard(fileName = fileName, fileSize = fileSize)
             Spacer(modifier = Modifier.height(24.dp))
+            
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { applyToAll = !applyToAll }) {
+                Checkbox(checked = applyToAll, onCheckedChange = { applyToAll = it }, colors = CheckboxDefaults.colors(checkedColor = ToolWatermark))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Apply same watermark to all pages", style = MaterialTheme.typography.bodyLarge)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = watermarkText,
-                onValueChange = { watermarkText = it },
-                label = { Text("Watermark Text (e.g., CONFIDENTIAL)") },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ToolWatermark,
-                    focusedLabelColor = ToolWatermark
+            if (applyToAll) {
+                OutlinedTextField(
+                    value = watermarkText,
+                    onValueChange = { watermarkText = it },
+                    label = { Text("Watermark Text (e.g., CONFIDENTIAL)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ToolWatermark,
+                        focusedLabelColor = ToolWatermark
+                    )
+                )
+            } else {
+                Text("Custom Pages", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                customRules.forEachIndexed { index, rule ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = rule.first,
+                            onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, newVal to rule.second) } },
+                            label = { Text("Pages (e.g. 1, 3-5)") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        OutlinedTextField(
+                            value = rule.second,
+                            onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, rule.first to newVal) } },
+                            label = { Text("Text") },
+                            modifier = Modifier.weight(1.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        IconButton(onClick = { customRules = customRules.toMutableList().apply { removeAt(index) } }) {
+                            Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete Rule", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                TextButton(onClick = { customRules = customRules + Pair("", "") }) {
+                    Icon(Icons.Outlined.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add Rule", color = ToolWatermark)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text("Color", style = MaterialTheme.typography.titleSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                availableColors.forEach { colorOption ->
+                    val isSelected = selectedColor == colorOption
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(colorOption.composeColor)
+                            .clickable { selectedColor = colorOption },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text("Opacity: ${(watermarkOpacity * 100).toInt()}%", style = MaterialTheme.typography.titleSmall)
+            Slider(
+                value = watermarkOpacity,
+                onValueChange = { watermarkOpacity = it },
+                valueRange = 0.1f..1.0f,
+                colors = SliderDefaults.colors(
+                    thumbColor = ToolWatermark,
+                    activeTrackColor = ToolWatermark
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text("Font Size: ${watermarkFontSize.toInt()}", style = MaterialTheme.typography.titleSmall)
+            Slider(
+                value = watermarkFontSize,
+                onValueChange = { watermarkFontSize = it },
+                valueRange = 12f..150f,
+                colors = SliderDefaults.colors(
+                    thumbColor = ToolWatermark,
+                    activeTrackColor = ToolWatermark
                 )
             )
 
@@ -161,9 +328,72 @@ val filePicker = rememberLauncherForActivityResult(
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                 Spacer(modifier = Modifier.height(16.dp))
             }
-
-            
         }
+    }
+
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - ${fileName}",
+            onSave = {
+                showPreviewViewer = false
+                suggestedOutputName = "watermarked_$fileName"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
+    if (showRenameDialog) {
+        RenameDialog(
+            suggestedName = suggestedOutputName,
+            onConfirm = { finalName ->
+                showRenameDialog = false
+                isProcessing = true
+                errorMessage = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "watermark_input_${System.currentTimeMillis()}.pdf")
+                                ?: throw Exception("Failed to read file")
+                            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                            val outputFile = File(context.cacheDir, "watermarked_${timestamp}.pdf")
+                            
+                            val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
+                            val defaultTxt = if (applyToAll) watermarkText else null
+                            
+                            PdfUtils.addTextWatermark(
+                                inputFile = inputFile,
+                                outputFile = outputFile,
+                                defaultText = defaultTxt,
+                                customTextMap = customMap,
+                                color = selectedColor.iTextColor,
+                                opacity = watermarkOpacity,
+                                fontSize = watermarkFontSize
+                            )
+                            
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null) {
+                                mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
+                                    fileName = finalName,
+                                    fileSize = outputFile.length(),
+                                    outputUri = resultUri,
+                                    localFile = outputFile
+                                )
+                            }
+                            inputFile.delete()
+                            outputFile.delete()
+                            previewFile?.delete()
+                        }
+                        isDone = true
+                    } catch (e: Exception) {
+                        errorMessage = e.localizedMessage ?: "Failed to apply watermark"
+                    }
+                    isProcessing = false
+                }
+            },
+            onDismiss = { showRenameDialog = false }
+        )
     }
 
     mergeResult?.let { result ->

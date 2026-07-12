@@ -21,17 +21,24 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.ViewCarousel
 import com.pdfmerger.app.ui.component.BrewScaffold
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onShowWelcome: () -> Unit) {
     BrewScaffold(
         title = "Settings",
         subtitle = "Preferences and information",
         onBack = onBack
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
@@ -132,6 +139,45 @@ fun SettingsScreen(onBack: () -> Unit) {
                         painter = androidx.compose.ui.res.painterResource(id = com.pdfmerger.app.R.drawable.ic_youtube),
                         contentDescription = null,
                         tint = androidx.compose.ui.graphics.Color.Unspecified,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            )
+
+            SettingsItem(
+                title = "Open Source (GitHub)",
+                subtitle = "Completely open source — view the code",
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Habeeb-UrRahman/brewPDF"))
+                    context.startActivity(intent)
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Code,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            )
+
+            Text(
+                "App Experience",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            SettingsItem(
+                title = "Replay Welcome Screen",
+                subtitle = "View the introductory onboarding again",
+                onClick = onShowWelcome,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Outlined.ViewCarousel,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(24.dp)
                     )
                 }

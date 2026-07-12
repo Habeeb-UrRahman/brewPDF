@@ -10,14 +10,26 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,9 +38,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -36,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import com.pdfmerger.app.ui.component.BrewScaffold
 import com.pdfmerger.app.ui.theme.ToolPdfToImages
 import com.pdfmerger.app.viewmodel.MergeViewModel
@@ -66,12 +83,23 @@ fun PdfViewerScreen(
     val rendererMutex = remember { Mutex() }
     
     var showToolSheet by remember { mutableStateOf(false) }
+    var isNightMode by remember { mutableStateOf(false) }
+
+    // Locked PDF state
+    var needsPassword by remember { mutableStateOf(false) }
+    var passwordInput by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var tempDecryptedFile by remember { mutableStateOf<java.io.File?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
             selectedUri = uri
+            needsPassword = false
+            passwordInput = ""
+            passwordError = null
         }
     }
 
@@ -89,6 +117,13 @@ fun PdfViewerScreen(
                         pdfRenderer = PdfRenderer(fd).also {
                             pageCount = it.pageCount
                         }
+                        needsPassword = false
+                    }
+                } catch (e: SecurityException) {
+                    // PDF is password-protected
+                    withContext(Dispatchers.Main) {
+                        needsPassword = true
+                        pageCount = 0
                     }
                 } catch (e: IOException) {
                     e.printStackTrace()
@@ -96,6 +131,7 @@ fun PdfViewerScreen(
             }
         } else {
             pageCount = 0
+            needsPassword = false
         }
     }
 
@@ -103,6 +139,7 @@ fun PdfViewerScreen(
         onDispose {
             pdfRenderer?.close()
             fileDescriptor?.close()
+            tempDecryptedFile?.delete()
         }
     }
 
@@ -112,6 +149,9 @@ fun PdfViewerScreen(
         onBack = onBack,
         actions = {
             if (selectedUri != null) {
+                IconButton(onClick = { isNightMode = !isNightMode }) {
+                    Icon(if (isNightMode) Icons.Outlined.LightMode else Icons.Outlined.DarkMode, contentDescription = "Toggle Night Mode")
+                }
                 IconButton(onClick = {
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "application/pdf"
@@ -160,41 +200,173 @@ fun PdfViewerScreen(
                         Text("Select PDF")
                     }
                 }
+            } else if (needsPassword) {
+                // Locked PDF — password prompt
+                val scope = rememberCoroutineScope()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center)
+                        .padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Lock icon
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.errorContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Outlined.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                    Text(
+                        "This PDF is password-protected",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Text(
+                        "Enter the password to view this document",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Password field
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            passwordInput = it
+                            passwordError = null
+                        },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = if (passwordVisible) 
+                            androidx.compose.ui.text.input.VisualTransformation.None 
+                        else 
+                            androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        isError = passwordError != null,
+                        supportingText = passwordError?.let { err -> { Text(err) } },
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                                    contentDescription = "Toggle password visibility"
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ToolPdfToImages,
+                            focusedLabelColor = ToolPdfToImages
+                        )
+                    )
+
+                    // Open button
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val decrypted = withContext(Dispatchers.IO) {
+                                        // Copy URI to temp, decrypt with iText
+                                        val inputFile = com.pdfmerger.app.util.FileProviderUtil.copyUriToStaging(
+                                            context, selectedUri!!, "viewer_temp_${System.currentTimeMillis()}.pdf"
+                                        ) ?: throw Exception("Could not read file")
+                                        val outFile = java.io.File(context.cacheDir, "decrypted_viewer_${System.currentTimeMillis()}.pdf")
+                                        com.pdfmerger.app.util.PdfUtils.unlockPdf(inputFile, outFile, passwordInput)
+                                        inputFile.delete()
+                                        outFile
+                                    }
+                                    // Open decrypted file with PdfRenderer
+                                    withContext(Dispatchers.IO) {
+                                        fileDescriptor?.close()
+                                        pdfRenderer?.close()
+                                        tempDecryptedFile?.delete()
+                                        tempDecryptedFile = decrypted
+                                        val fd = ParcelFileDescriptor.open(decrypted, ParcelFileDescriptor.MODE_READ_ONLY)
+                                        fileDescriptor = fd
+                                        pdfRenderer = PdfRenderer(fd).also { pageCount = it.pageCount }
+                                    }
+                                    needsPassword = false
+                                    passwordError = null
+                                } catch (e: Exception) {
+                                    passwordError = "Incorrect password"
+                                }
+                            }
+                        },
+                        enabled = passwordInput.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = ToolPdfToImages),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Open", fontWeight = FontWeight.Bold)
+                    }
+
+                    // Subtle "Create unlocked version?" button
+                    TextButton(
+                        onClick = {
+                            viewModel.pendingToolUris.value = listOf(selectedUri!!)
+                            onNavigateToTool(Tool.Unlock)
+                        }
+                    ) {
+                        Icon(
+                            Icons.Outlined.LockOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Create unlocked version?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             } else {
                 // Viewer
+                val listState = rememberLazyListState()
                 var scale by remember { mutableFloatStateOf(1f) }
-                var offset by remember { mutableStateOf(Offset.Zero) }
+                var offsetX by remember { mutableFloatStateOf(0f) }
                 var size by remember { mutableStateOf(IntSize.Zero) }
+                val scaleState = rememberUpdatedState(scale)
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { size = it }
                         .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
+                            detectPdfGestures(scaleState) { centroid, pan, zoom ->
                                 scale = maxOf(1f, minOf(scale * zoom, 5f))
                                 if (scale > 1f) {
                                     val maxX = (size.width * (scale - 1)) / 2f
-                                    val maxY = (size.height * (scale - 1)) / 2f
-                                    offset = Offset(
-                                        x = (offset.x + pan.x * scale).coerceIn(-maxX, maxX),
-                                        y = (offset.y + pan.y * scale).coerceIn(-maxY, maxY)
-                                    )
+                                    offsetX = (offsetX + pan.x).coerceIn(-maxX, maxX)
+                                    if (pan.y != 0f) {
+                                        listState.dispatchRawDelta(-pan.y / scale)
+                                    }
                                 } else {
-                                    offset = Offset.Zero
+                                    offsetX = 0f
                                 }
                             }
                         }
                 ) {
                     LazyColumn(
-                        userScrollEnabled = scale == 1f,
+                        state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
                                 scaleX = scale
                                 scaleY = scale
-                                translationX = offset.x
-                                translationY = offset.y
+                                translationX = offsetX
                             },
                         contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 100.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -203,27 +375,28 @@ fun PdfViewerScreen(
                             PdfPage(
                                 renderer = pdfRenderer,
                                 mutex = rendererMutex,
-                                pageIndex = index
+                                pageIndex = index,
+                                isNightMode = isNightMode
                             )
                         }
                     }
                 }
                 
                 // Draggable FAB
-                var offsetX by remember { mutableFloatStateOf(0f) }
-                var offsetY by remember { mutableFloatStateOf(0f) }
+                var fabOffsetX by remember { mutableFloatStateOf(0f) }
+                var fabOffsetY by remember { mutableFloatStateOf(0f) }
                 
                 FloatingActionButton(
                     onClick = { showToolSheet = true },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 32.dp, end = 16.dp)
-                        .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                        .offset { IntOffset(fabOffsetX.roundToInt(), fabOffsetY.roundToInt()) }
                         .pointerInput(Unit) {
                             detectDragGestures { change, dragAmount ->
                                 change.consume()
-                                offsetX += dragAmount.x
-                                offsetY += dragAmount.y
+                                fabOffsetX += dragAmount.x
+                                fabOffsetY += dragAmount.y
                             }
                         },
                     containerColor = ToolPdfToImages
@@ -280,7 +453,8 @@ fun PdfViewerScreen(
 private fun PdfPage(
     renderer: PdfRenderer?,
     mutex: Mutex,
-    pageIndex: Int
+    pageIndex: Int,
+    isNightMode: Boolean
 ) {
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     
@@ -308,11 +482,22 @@ private fun PdfPage(
         }
     }
 
+    val nightModeMatrix = remember {
+        ColorMatrix(
+            floatArrayOf(
+                -1f,  0f,  0f, 0f, 255f,
+                 0f, -1f,  0f, 0f, 255f,
+                 0f,  0f, -1f, 0f, 255f,
+                 0f,  0f,  0f, 1f,   0f
+            )
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(if (bitmap != null) bitmap!!.width.toFloat() / bitmap!!.height.toFloat() else 1f / 1.4f)
-            .background(Color.White)
+            .background(if (isNightMode) Color(0xFF1E1E1E) else Color.White)
             .shadow(4.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -322,10 +507,64 @@ private fun PdfPage(
                 bitmap = bm.asImageBitmap(),
                 contentDescription = "Page ${pageIndex + 1}",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Fit,
+                colorFilter = if (isNightMode) ColorFilter.colorMatrix(nightModeMatrix) else null
             )
         } else {
             CircularProgressIndicator()
         }
+    }
+}
+
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectPdfGestures(
+    scaleState: State<Float>,
+    onGesture: (centroid: Offset, pan: Offset, zoom: Float) -> Unit
+) {
+    awaitEachGesture {
+        var pastTouchSlop = false
+        val touchSlop = viewConfiguration.touchSlop
+        var pan = Offset.Zero
+        var zoom = 1f
+
+        awaitFirstDown(requireUnconsumed = false)
+        do {
+            val event = awaitPointerEvent()
+            val canceled = event.changes.any { it.isConsumed }
+            if (!canceled) {
+                val zoomChange = event.calculateZoom()
+                val panChange = event.calculatePan()
+                val pointerCount = event.changes.filter { it.pressed }.size
+
+                // If scale is 1f and we only have 1 pointer, let LazyColumn handle the scroll.
+                if (scaleState.value == 1f && pointerCount == 1) {
+                    continue
+                }
+
+                if (!pastTouchSlop) {
+                    zoom *= zoomChange
+                    pan += panChange
+                    
+                    val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                    val zoomMotion = abs(1 - zoom) * centroidSize
+                    val panMotion = pan.getDistance()
+
+                    if (zoomMotion > touchSlop || panMotion > touchSlop) {
+                        pastTouchSlop = true
+                    }
+                }
+
+                if (pastTouchSlop) {
+                    val centroid = event.calculateCentroid(useCurrent = false)
+                    if (zoomChange != 1f || panChange != Offset.Zero) {
+                        onGesture(centroid, panChange, zoomChange)
+                    }
+                    event.changes.forEach {
+                        if (it.positionChange() != Offset.Zero) {
+                            it.consume()
+                        }
+                    }
+                }
+            }
+        } while (!canceled && event.changes.any { it.pressed })
     }
 }

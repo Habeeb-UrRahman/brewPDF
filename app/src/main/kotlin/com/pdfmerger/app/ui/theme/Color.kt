@@ -55,6 +55,8 @@ val ToolWatermark = Color(0xFF6B9A7E)      // Muted sage
 val ToolPageNumbers = Color(0xFF8B8A94)    // Slate gray
 val ToolRedact = Color(0xFF423E3A)         // Charcoal
 val ToolScanDocument = Color(0xFF3A8F7A)   // Teal green
+val ToolOcr = Color(0xFF673AB7)            // Deep purple
+
 
 // ── Gradient tokens ──
 val GradientStart = BrewAmber

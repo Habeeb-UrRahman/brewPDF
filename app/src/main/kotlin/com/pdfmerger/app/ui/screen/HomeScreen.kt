@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Article
+import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.automirrored.rounded.ArrowForwardIos
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.rounded.Layers
@@ -29,7 +31,7 @@ import com.pdfmerger.app.ui.theme.*
 enum class Tool {
     Merge, Compress, Extract, ImagesToPdf, Encrypt, PageEditor,
     PdfToImages, Unlock, Watermark, PageNumbers, Redact,
-    ScanDocument, TextToPdf, PdfViewer, PdfMaker, Settings
+    ScanDocument, TextToPdf, PdfViewer, PdfMaker, Settings, Split, Ocr
 }
 
 data class ToolItem(
@@ -49,12 +51,13 @@ data class ToolCategory(
 val toolCategories = listOf(
     ToolCategory("Organize", listOf(
         ToolItem(Tool.Extract, Icons.Outlined.ContentCut, "Extract Pages", "Pull specific pages", ToolExtract),
+        ToolItem(Tool.Split, Icons.AutoMirrored.Outlined.CallSplit, "Split PDF", "Split at page", ToolExtract),
         ToolItem(Tool.PageEditor, Icons.Outlined.ViewComfy, "Page Editor", "Reorder & rotate", ToolPageEditor),
         ToolItem(Tool.PageNumbers, Icons.Outlined.FormatListNumbered, "Page Numbers", "Add numbering", ToolPageNumbers),
     )),
     ToolCategory("Convert", listOf(
         ToolItem(Tool.ImagesToPdf, Icons.Outlined.Image, "Images → PDF", "Photos to document", ToolImagesToPdf),
-        ToolItem(Tool.TextToPdf, Icons.Outlined.Article, "Text → PDF", "Txt to document", ToolMerge),
+        ToolItem(Tool.TextToPdf, Icons.AutoMirrored.Outlined.Article, "Text → PDF", "Txt to document", ToolMerge),
         ToolItem(Tool.PdfToImages, Icons.Outlined.PhotoLibrary, "PDF → Images", "Pages as photos", ToolPdfToImages),
         ToolItem(Tool.ScanDocument, Icons.Outlined.DocumentScanner, "Scan Document", "Camera to PDF", ToolScanDocument),
         ToolItem(Tool.PdfMaker, Icons.Outlined.Edit, "PDF Maker", "Create PDFs from text", ToolMerge),
@@ -62,9 +65,10 @@ val toolCategories = listOf(
     ToolCategory("Protect", listOf(
         ToolItem(Tool.Encrypt, Icons.Outlined.Lock, "Lock PDF", "Password protect", ToolEncrypt),
         ToolItem(Tool.Unlock, Icons.Outlined.LockOpen, "Unlock PDF", "Remove password", ToolUnlock),
+        ToolItem(Tool.Watermark, Icons.Outlined.FontDownload, "Watermark", "Add text overlay", ToolWatermark),
     )),
     ToolCategory("Coming in v3", listOf(
-        ToolItem(Tool.Watermark, Icons.Outlined.FontDownload, "Watermark", "Coming soon", ToolWatermark, comingSoon = true),
+        ToolItem(Tool.Ocr, Icons.Outlined.FindInPage, "Extract Text", "Coming soon", ToolOcr, comingSoon = true),
         ToolItem(Tool.Redact, Icons.Outlined.FormatStrikethrough, "Redact", "Coming soon", ToolRedact, comingSoon = true),
         ToolItem(Tool.Compress, Icons.Outlined.Compress, "Compress", "Coming soon", ToolCompress, comingSoon = true),
     )),

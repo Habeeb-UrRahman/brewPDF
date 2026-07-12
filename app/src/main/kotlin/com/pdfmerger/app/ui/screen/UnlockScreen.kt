@@ -54,8 +54,10 @@ fun UnlockScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
-
     
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
+
     LaunchedEffect(initialUri) {
         if (initialUri != null && selectedUri == null) {
             val uri = initialUri
@@ -98,11 +100,35 @@ val filePicker = rememberLauncherForActivityResult(
                         password = ""
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Unlock",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "preview_unlock_${System.currentTimeMillis()}.pdf")
+                                        ?: throw Exception("Failed to read file")
+                                    val outputFile = File(context.cacheDir, "preview_unlocked_${System.currentTimeMillis()}.pdf")
+                                    PdfUtils.unlockPdf(inputFile, outputFile, password)
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                    inputFile.delete()
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview. Wrong password?"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save Unlock",
                     isActionEnabled = password.isNotEmpty() && !isProcessing && !isDone,
                     isProcessing = isProcessing,
-                    actionColor = com.pdfmerger.app.ui.theme.ToolUnlock,
+                    actionColor = ToolUnlock,
                     onActionClick = {
                         suggestedOutputName = "unlocked_$fileName"
                         showRenameDialog = true
@@ -193,6 +219,19 @@ val filePicker = rememberLauncherForActivityResult(
         )
     }
 
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - ${fileName}",
+            onSave = {
+                showPreviewViewer = false
+                suggestedOutputName = "unlocked_$fileName"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
     if (showRenameDialog) {
         RenameDialog(
             suggestedName = suggestedOutputName,
@@ -219,6 +258,7 @@ val filePicker = rememberLauncherForActivityResult(
                             }
                             inputFile.delete()
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

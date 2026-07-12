@@ -29,6 +29,7 @@ import java.io.File
 fun PdfViewer(
     file: File,
     fileName: String,
+    onSave: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
@@ -79,6 +80,13 @@ fun PdfViewer(
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Outlined.Close, contentDescription = "Close Viewer")
+                        }
+                    },
+                    actions = {
+                        if (onSave != null) {
+                            TextButton(onClick = onSave) {
+                                Text("Save", color = MaterialTheme.colorScheme.primary, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(

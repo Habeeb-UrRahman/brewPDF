@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,9 +52,12 @@ fun PdfMakerScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
     
-    // Rename dialog state
     var showRenameDialog by remember { mutableStateOf(false) }
     val defaultFileName = "MadeDocument_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}"
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
+
 
     BrewScaffold(
         title = "PDF Maker",
@@ -65,23 +69,59 @@ fun PdfMakerScreen(
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 8.dp
                 ) {
-                    PaddingValues(16.dp)
-                    Button(
-                        onClick = { showRenameDialog = true },
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp)
-                            .height(56.dp),
-                        enabled = !isProcessing,
-                        colors = ButtonDefaults.buttonColors(containerColor = ToolMerge)
+                            .navigationBarsPadding(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = Color.White
+                        IconButton(
+                            onClick = {
+                                isProcessing = true
+                                coroutineScope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val outputDir = File(context.cacheDir, "made_pdfs").apply { mkdirs() }
+                                            val outputFile = File(outputDir, "preview_made_${System.currentTimeMillis()}.pdf")
+                                            PdfUtils.textPagesToPdf(pages.toList(), outputFile)
+                                            previewFile?.delete()
+                                            previewFile = outputFile
+                                        }
+                                        showPreviewViewer = true
+                                    } catch (e: Exception) {
+                                        snackbarMessage = "Failed to generate preview"
+                                    }
+                                    isProcessing = false
+                                }
+                            },
+                            enabled = !isProcessing,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Visibility,
+                                contentDescription = "Preview",
+                                tint = ToolMerge
                             )
-                        } else {
-                            Text("Generate PDF", style = MaterialTheme.typography.titleMedium)
+                        }
+
+                        Button(
+                            onClick = { showRenameDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(56.dp),
+                            enabled = !isProcessing,
+                            colors = ButtonDefaults.buttonColors(containerColor = ToolMerge)
+                        ) {
+                            if (isProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color.White
+                                )
+                            } else {
+                                Text("Save PDF", style = MaterialTheme.typography.titleMedium)
+                            }
                         }
                     }
                 }
@@ -133,6 +173,18 @@ fun PdfMakerScreen(
             }
         }
     }
+
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - PDF Maker",
+            onSave = {
+                showPreviewViewer = false
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
     
     if (showRenameDialog) {
         RenameDialog(
@@ -153,6 +205,7 @@ fun PdfMakerScreen(
                             
                             // Move to Downloads
                             FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            previewFile?.delete()
                             outputFile
                         } catch (e: Exception) {
                             e.printStackTrace()

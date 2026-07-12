@@ -12,8 +12,8 @@ android {
         applicationId = "com.brewcreativestudio.brewpdf"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.1"
+        versionCode = 6
+        versionName = "2.3"
     }
 
     signingConfigs {
@@ -95,9 +95,21 @@ dependencies {
     // iText 7 for PDF merging (AGPL)
     implementation("com.itextpdf:itext-core:8.0.5")
     implementation("com.itextpdf:bouncy-castle-adapter:8.0.5")
+    implementation("com.itextpdf:cleanup:4.0.3")
 
     // ML Kit Document Scanner (on-device, via Play Services)
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
+
+
+
+    // AI Summarizer — Gemma 4 on-device inference via LiteRT-LM
+    // NOTE: Add this dependency when internet is available for Gradle sync:
+    // implementation("com.google.ai.edge.litertlm:litertlm-android:0.1.0")
+    // The LlmManager uses reflection, so the app compiles and runs without it.
+    // Without it, the built-in extractive summarizer is used as a fallback.
+
+    // WorkManager for reliable model download (future use)
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

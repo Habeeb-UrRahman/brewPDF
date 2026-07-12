@@ -70,6 +70,9 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRenameDialog by remember { mutableStateOf(false) }
     var suggestedOutputName by remember { mutableStateOf("") }
+    
+    var showPreviewViewer by remember { mutableStateOf(false) }
+    var previewFile by remember { mutableStateOf<File?>(null) }
 
     fun handleUriSelection(uri: Uri) {
         selectedUri = uri
@@ -126,11 +129,33 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                         pageCount = 0
                         isDone = false
                         errorMessage = null
+                        previewFile?.delete()
+                        previewFile = null
                     },
-                    actionText = if (isDone) "Done ✓" else "Extract Files",
+                    showPreviewButton = true,
+                    onPreviewClick = {
+                        isProcessing = true
+                        errorMessage = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    val outputFile = File(context.cacheDir, "preview_extracted_${System.currentTimeMillis()}.pdf")
+                                    val pagesToExtract = selectedPages.map { it + 1 }
+                                    PdfUtils.extractPages(cachedFile!!, outputFile, pagesToExtract)
+                                    previewFile?.delete()
+                                    previewFile = outputFile
+                                }
+                                showPreviewViewer = true
+                            } catch (e: Exception) {
+                                errorMessage = e.localizedMessage ?: "Failed to generate preview"
+                            }
+                            isProcessing = false
+                        }
+                    },
+                    actionText = if (isDone) "Done ✓" else "Save Extracted",
                     isActionEnabled = selectedPages.isNotEmpty() && !isProcessing && !isDone,
                     isProcessing = isProcessing,
-                    actionColor = com.pdfmerger.app.ui.theme.ToolExtract,
+                    actionColor = ToolExtract,
                     onActionClick = {
                         suggestedOutputName = "extracted_$fileName"
                         showRenameDialog = true
@@ -258,6 +283,19 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
         )
     }
 
+    if (showPreviewViewer && previewFile != null) {
+        com.pdfmerger.app.ui.component.PdfViewer(
+            file = previewFile!!,
+            fileName = "Preview - Extracted Pages",
+            onSave = {
+                showPreviewViewer = false
+                suggestedOutputName = "extracted_$fileName"
+                showRenameDialog = true
+            },
+            onDismiss = { showPreviewViewer = false }
+        )
+    }
+
     // Rename dialog
     if (showRenameDialog) {
         RenameDialog(
@@ -269,10 +307,12 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                 scope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            val sortedPages = selectedPages.sorted().map { it + 1 }
                             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                             val outputFile = File(context.cacheDir, "extracted_${timestamp}.pdf")
-                            PdfUtils.extractPages(cachedFile!!, outputFile, sortedPages)
+                            
+                            val pagesToExtract = selectedPages.map { it + 1 } // 1-indexed for iText
+                            PdfUtils.extractPages(cachedFile!!, outputFile, pagesToExtract)
+                            
                             val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
                             if (resultUri != null) {
                                 mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
@@ -283,6 +323,7 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                                 )
                             }
                             outputFile.delete()
+                            previewFile?.delete()
                         }
                         isDone = true
                     } catch (e: Exception) {

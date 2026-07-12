@@ -241,24 +241,42 @@ object PdfUtils {
     }
 
     /**
-     * Adds a diagonal text watermark to each page of the PDF.
+     * Adds a diagonal text watermark to the PDF.
+     * If defaultText is provided, it applies to all pages except those in customTextMap.
+     * If defaultText is null, only pages in customTextMap get watermarked.
      */
-    fun addTextWatermark(inputFile: File, outputFile: File, text: String) {
+    fun addTextWatermark(
+        inputFile: File, 
+        outputFile: File, 
+        defaultText: String? = null,
+        customTextMap: Map<Int, String> = emptyMap(),
+        color: com.itextpdf.kernel.colors.Color = ColorConstants.RED, 
+        opacity: Float = 0.3f,
+        fontSize: Float = 80f
+    ) {
         val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile))
         val font = PdfFontFactory.createFont(com.itextpdf.io.font.constants.StandardFonts.HELVETICA_BOLD)
-        val transparentState = PdfExtGState().setFillOpacity(0.3f)
+        val transparentState = PdfExtGState().setFillOpacity(opacity)
 
         for (i in 1..pdfDoc.numberOfPages) {
+            val textToDraw = customTextMap[i] ?: defaultText
+            if (textToDraw.isNullOrBlank()) continue // Skip if no watermark for this page
+
             val page = pdfDoc.getPage(i)
             val pageSize = page.pageSize
-            val pdfCanvas = PdfCanvas(page.newContentStreamBefore(), page.resources, pdfDoc)
+            
+            // The critical fix: use `PdfCanvas(page, true)` to wrap the old content in q/Q operators.
+            // This resets the graphics state (including inverted CTMs from other software)
+            // so our watermark is drawn in standard coordinates (bottom-left origin).
+            val pdfCanvas = PdfCanvas(page, true)
+            
             pdfCanvas.saveState()
             pdfCanvas.setExtGState(transparentState)
 
             val canvas = com.itextpdf.layout.Canvas(pdfCanvas, pageSize)
-            canvas.setFont(font).setFontSize(80f).setFontColor(ColorConstants.RED)
+            canvas.setFont(font).setFontSize(fontSize).setFontColor(color)
             canvas.showTextAligned(
-                text,
+                textToDraw,
                 pageSize.width / 2,
                 pageSize.height / 2,
                 TextAlignment.CENTER,
@@ -295,32 +313,6 @@ object PdfUtils {
         document.close()
     }
 
-    /**
-     * Redacts text matching the given string. 
-     */
-    fun redactText(inputFile: File, outputFile: File, textToRedact: String) {
-        val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile))
-        for (i in 1..pdfDoc.numberOfPages) {
-            val page = pdfDoc.getPage(i)
-            val strategy = RegexBasedLocationExtractionStrategy("(?i)" + Regex.escape(textToRedact))
-            val processor = PdfCanvasProcessor(strategy)
-            processor.processPageContent(page)
-
-            val locations = strategy.resultantLocations
-            if (locations.isNotEmpty()) {
-                val pdfCanvas = PdfCanvas(page.newContentStreamAfter(), page.resources, pdfDoc)
-                pdfCanvas.saveState()
-                pdfCanvas.setFillColor(ColorConstants.BLACK)
-                for (location in locations) {
-                    val rect = location.rectangle
-                    pdfCanvas.rectangle(rect.left.toDouble(), rect.bottom.toDouble(), rect.width.toDouble(), rect.height.toDouble())
-                    pdfCanvas.fill()
-                }
-                pdfCanvas.restoreState()
-            }
-        }
-        pdfDoc.close()
-    }
 
     /**
      * Converts a plain text file into a PDF.
@@ -360,5 +352,48 @@ object PdfUtils {
         } finally {
             document.close()
         }
+    }
+
+    /**
+     * Splits a PDF into two files at the given page number.
+     * Part 1: pages 1 to splitAtPage.
+     * Part 2: pages splitAtPage + 1 to end.
+     */
+    fun splitPdf(inputFile: File, splitAtPage: Int, outputFile1: File, outputFile2: File) {
+        val reader = PdfReader(inputFile)
+        val sourceDoc = PdfDocument(reader)
+        val totalPages = sourceDoc.numberOfPages
+        
+        if (splitAtPage < 1 || splitAtPage >= totalPages) {
+            sourceDoc.close()
+            throw IllegalArgumentException("Invalid split page number")
+        }
+
+        // Part 1
+        val pdf1 = PdfDocument(PdfWriter(outputFile1))
+        sourceDoc.copyPagesTo(1, splitAtPage, pdf1)
+        pdf1.close()
+
+        // Part 2
+        val pdf2 = PdfDocument(PdfWriter(outputFile2))
+        sourceDoc.copyPagesTo(splitAtPage + 1, totalPages, pdf2)
+        pdf2.close()
+
+        sourceDoc.close()
+    }
+
+    /**
+     * Redacts text from a PDF securely using iText pdfSweep (cleanup plugin).
+     */
+    fun redactText(inputFile: File, outputFile: File, textToRedact: String) {
+        val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile))
+        
+        // Escape regex special characters from the user's input so it searches literal text
+        val escapedText = Regex.escape(textToRedact)
+        
+        val strategy = com.itextpdf.pdfcleanup.autosweep.RegexBasedCleanupStrategy(escapedText)
+        com.itextpdf.pdfcleanup.PdfCleaner.autoSweepCleanUp(pdfDoc, strategy)
+        
+        pdfDoc.close()
     }
 }

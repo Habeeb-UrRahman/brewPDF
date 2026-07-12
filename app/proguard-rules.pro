@@ -8,3 +8,7 @@
 -keep class org.bouncycastle.** { *; }
 -dontwarn org.bouncycastle.**
 -dontwarn org.slf4j.**
+
+# Apache Commons Imaging
+-dontwarn java.awt.**
+-dontwarn org.apache.commons.imaging.**

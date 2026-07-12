@@ -10,6 +10,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.SaveAlt
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ fun StagingBottomBar(
     onSortClick: () -> Unit,
     onSaveClick: () -> Unit,
     onResetClick: () -> Unit,
+    onPreviewClick: () -> Unit,
     onMergeClick: () -> Unit,
     isMerging: Boolean
 ) {
@@ -62,6 +64,13 @@ fun StagingBottomBar(
                     onClick = onSaveClick,
                     enabled = itemCount > 0,
                     contentDesc = "Save"
+                )
+                BarIconButton(
+                    icon = Icons.Outlined.Visibility,
+                    onClick = onPreviewClick,
+                    enabled = itemCount > 1 && !isMerging,
+                    tint = MaterialTheme.colorScheme.primary,
+                    contentDesc = "Preview"
                 )
                 BarIconButton(
                     icon = Icons.Outlined.DeleteOutline,

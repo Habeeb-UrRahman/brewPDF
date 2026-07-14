@@ -111,13 +111,13 @@ fun CompressScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                             try {
                                 val cachedFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "compress_input_${System.currentTimeMillis()}.pdf")
                                 withContext(Dispatchers.IO) {
-                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                    val outputFile = File(context.cacheDir, "compressed_${timestamp}.pdf")
+                                    val smartName = FileProviderUtil.generateSmartName("compress", listOf(fileName))
+                                    val outputFile = File(context.cacheDir, smartName)
                                     PdfUtils.compressPdf(cachedFile!!, outputFile, selectedLevel.level)
-                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "compressed_$fileName")
+                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, smartName)
                                     if (resultUri != null) {
                                         mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                            fileName = "compressed_$fileName",
+                                            fileName = smartName,
                                             fileSize = outputFile.length(),
                                             outputUri = resultUri,
                                             localFile = outputFile

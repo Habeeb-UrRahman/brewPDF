@@ -157,7 +157,8 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                     isProcessing = isProcessing,
                     actionColor = ToolExtract,
                     onActionClick = {
-                        suggestedOutputName = "extracted_$fileName"
+                        val rangeStr = if (selectedPages.isNotEmpty()) "p${selectedPages.minOrNull()!! + 1}-${selectedPages.maxOrNull()!! + 1}" else ""
+                        suggestedOutputName = FileProviderUtil.generateSmartName("extract", listOf(fileName), mapOf("range" to rangeStr))
                         showRenameDialog = true
                     }
                 )
@@ -289,7 +290,8 @@ fun ExtractScreen(initialUri: Uri? = null, onBack: () -> Unit) {
             fileName = "Preview - Extracted Pages",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "extracted_$fileName"
+                val rangeStr = if (selectedPages.isNotEmpty()) "p${selectedPages.minOrNull()!! + 1}-${selectedPages.maxOrNull()!! + 1}" else ""
+                suggestedOutputName = FileProviderUtil.generateSmartName("extract", listOf(fileName), mapOf("range" to rangeStr))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

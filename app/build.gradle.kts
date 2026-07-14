@@ -12,8 +12,8 @@ android {
         applicationId = "com.brewcreativestudio.brewpdf"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "2.3"
+        versionCode = 7
+        versionName = "2.4"
     }
 
     signingConfigs {
@@ -88,6 +88,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.animation:animation")
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Reorderable drag-and-drop
     implementation("sh.calvin.reorderable:reorderable:2.4.3")

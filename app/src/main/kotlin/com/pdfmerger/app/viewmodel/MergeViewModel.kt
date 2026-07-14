@@ -8,8 +8,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pdfmerger.app.model.PdfItem
+import com.pdfmerger.app.model.PipelineAction
 import com.pdfmerger.app.util.FileProviderUtil
 import com.pdfmerger.app.util.PdfUtils
+import com.pdfmerger.app.util.PipelineExecutor
+import com.pdfmerger.app.util.PipelineProgress
+import com.pdfmerger.app.util.PipelineResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -82,6 +86,23 @@ class MergeViewModel : ViewModel() {
 
     /** Action of the intent (e.g. ACTION_SEND or ACTION_VIEW). */
     val sharedAction = mutableStateOf("")
+
+    // ── Pipeline State ──────────────────────────────────────────────────
+
+    /** The set of pipeline actions the user has toggled on. */
+    val selectedActions = mutableStateListOf<PipelineAction>()
+
+    /** Real-time progress from the PipelineExecutor. */
+    val pipelineProgress = mutableStateOf<PipelineProgress?>(null)
+
+    /** True while the pipeline is executing. */
+    val isExecutingPipeline = mutableStateOf(false)
+
+    /** The result of the last pipeline execution. */
+    val pipelineResult = mutableStateOf<PipelineResult?>(null)
+    
+    /** True if the user has manually reordered items, false if they are still auto-sorted. */
+    var hasManualOrder = false
 
     companion object {
         private const val MAX_STAGING_SIZE_BYTES = 100L * 1024 * 1024 // 100MB
@@ -340,7 +361,9 @@ class MergeViewModel : ViewModel() {
 
             withContext(Dispatchers.Main) {
                 pdfItems.addAll(newItems)
-                applySort()
+                if (!hasManualOrder) {
+                    applySort()
+                }
                 saveState(context)
                 isLoading.value = false
                 
@@ -361,6 +384,7 @@ class MergeViewModel : ViewModel() {
         if (fromIndex in pdfItems.indices && toIndex in pdfItems.indices) {
             val movedItem = pdfItems.removeAt(fromIndex)
             pdfItems.add(toIndex, movedItem)
+            hasManualOrder = true
             saveState(context)
         }
     }
@@ -418,8 +442,8 @@ class MergeViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                val outputFileName = "merged_${timestamp}.pdf"
+                val sourceFileNames = pdfItems.map { it.fileName }
+                val outputFileName = FileProviderUtil.generateSmartName("merge", sourceFileNames)
 
                 val tempOutput = File(context.cacheDir, outputFileName)
                 val inputFiles = pdfItems.mapNotNull { it.cachedFile }
@@ -491,6 +515,10 @@ class MergeViewModel : ViewModel() {
         mergeResult.value = null
     }
 
+    fun clearPipelineResult() {
+        pipelineResult.value = null
+    }
+
     fun clearSnackbar() {
         snackbarMessage.value = null
     }
@@ -498,11 +526,137 @@ class MergeViewModel : ViewModel() {
     fun reset(context: Context) {
         pdfItems.forEach { it.cachedFile?.delete() }
         pdfItems.clear()
+        selectedActions.clear()
+        pipelineProgress.value = null
+        pipelineResult.value = null
         saveState(context)
+    }
+
+    // ── Pipeline Execution ───────────────────────────────────────────────
+
+    fun executePipeline(context: Context) {
+        val inputFiles = pdfItems.mapNotNull { it.cachedFile }
+        if (inputFiles.isEmpty()) {
+            snackbarMessage.value = "Add at least one PDF to the stage."
+            return
+        }
+        if (selectedActions.isEmpty()) {
+            snackbarMessage.value = "Select at least one action."
+            return
+        }
+        if (pdfItems.any { it.isLocked }) {
+            snackbarMessage.value = "Please unlock all PDFs before running the pipeline."
+            return
+        }
+        val hasMerge = selectedActions.any { it is PipelineAction.Merge }
+        if (hasMerge && inputFiles.size < 2) {
+            snackbarMessage.value = "Merge requires at least 2 PDFs."
+            return
+        }
+
+        isExecutingPipeline.value = true
+        pipelineProgress.value = PipelineProgress("Starting…", 0f, null)
+
+        // Validate watermark configuration
+        val watermarkAction = selectedActions.filterIsInstance<PipelineAction.Watermark>().firstOrNull()
+        if (watermarkAction != null) {
+            if (!watermarkAction.isImageMode && watermarkAction.text.isBlank() && watermarkAction.customRules.all { it.second.isBlank() }) {
+                isExecutingPipeline.value = false
+                pipelineProgress.value = null
+                snackbarMessage.value = "Please configure watermark text before executing."
+                return
+            }
+            if (watermarkAction.isImageMode && watermarkAction.stampPath == null) {
+                isExecutingPipeline.value = false
+                pipelineProgress.value = null
+                snackbarMessage.value = "Please select a stamp or signature image for watermark."
+                return
+            }
+        }
+
+        viewModelScope.launch {
+            try {
+                val result = PipelineExecutor.execute(
+                    context = context,
+                    inputFiles = inputFiles,
+                    actions = selectedActions.toList(),
+                    onProgress = { progress ->
+                        pipelineProgress.value = progress
+                    }
+                )
+
+                // Don't save to Downloads yet — stash for preview
+                pipelineResult.value = result
+                isExecutingPipeline.value = false
+                pipelineProgress.value = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+                isExecutingPipeline.value = false
+                pipelineProgress.value = null
+                snackbarMessage.value = "Pipeline failed: ${e.localizedMessage ?: "Unknown error"}"
+            }
+        }
+    }
+
+    /**
+     * After the user previews the pipeline output, save the result to Downloads.
+     */
+    fun savePipelineResult(context: Context, customName: String? = null) {
+        val result = pipelineResult.value ?: return
+        val sourceFileNames = pdfItems.map { it.fileName }
+        val outputFileName = customName ?: FileProviderUtil.generateSmartName("pipeline", sourceFileNames)
+
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (!result.isImages) {
+                        for (outputFile in result.outputFiles) {
+                            val finalName = if (result.outputFiles.size == 1) outputFileName
+                                else "${outputFileName.removeSuffix(".pdf")}_${result.outputFiles.indexOf(outputFile) + 1}.pdf"
+                            val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
+                            if (resultUri != null && result.outputFiles.size == 1) {
+                                withContext(Dispatchers.Main) {
+                                    mergeResult.value = MergeResult(
+                                        fileName = finalName,
+                                        fileSize = outputFile.length(),
+                                        outputUri = resultUri,
+                                        localFile = outputFile
+                                    )
+                                }
+                            }
+                        }
+                        if (result.outputFiles.size > 1) {
+                            withContext(Dispatchers.Main) {
+                                snackbarMessage.value = "Pipeline complete! ${result.outputFiles.size} files saved to Downloads."
+                            }
+                        }
+                    } else {
+                        var savedCount = 0
+                        for (outputFile in result.outputFiles) {
+                            val isPng = outputFile.name.endsWith(".png", ignoreCase = true)
+                            val format = if (isPng) com.pdfmerger.app.ui.screen.ImageFormat.PNG else com.pdfmerger.app.ui.screen.ImageFormat.JPEG
+                            val ext = if (isPng) "png" else "jpg"
+                            val finalName = "${outputFileName.removeSuffix(".pdf")}_${result.outputFiles.indexOf(outputFile) + 1}.$ext"
+                            val resultUri = FileProviderUtil.saveImageToDownloads(context, outputFile, finalName, format)
+                            if (resultUri != null) {
+                                savedCount++
+                            }
+                        }
+                        withContext(Dispatchers.Main) {
+                            snackbarMessage.value = "Pipeline complete! $savedCount images saved to Downloads."
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                snackbarMessage.value = "Failed to save: ${e.localizedMessage ?: "Unknown error"}"
+            }
+        }
     }
 
     fun toggleSort(context: Context) {
         sortAscending.value = !sortAscending.value
+        hasManualOrder = false
         applySort()
         saveState(context)
     }

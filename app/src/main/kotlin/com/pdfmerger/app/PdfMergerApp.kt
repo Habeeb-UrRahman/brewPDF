@@ -13,7 +13,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.pdfmerger.app.ui.screen.SessionSelectorSheet
 import com.pdfmerger.app.ui.screen.*
 import com.pdfmerger.app.ui.theme.BrewAmber
 import com.pdfmerger.app.ui.theme.PdfMergerTheme
@@ -95,11 +98,11 @@ fun PdfMergerApp(viewModel: MergeViewModel = viewModel()) {
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // Merge option
+                // Pipeline option
                 ShareOptionCard(
-                    icon = Icons.Rounded.Layers,
-                    title = "Add to Merge Stage",
-                    subtitle = "Combine with other PDFs",
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = "Add to PDF Studio",
+                    subtitle = "Chain bulk actions on PDFs",
                     accentColor = BrewAmber,
                     onClick = {
                         val currentDefaultId = prefs.getString("temp_default_session_id", null)
@@ -112,7 +115,7 @@ fun PdfMergerApp(viewModel: MergeViewModel = viewModel()) {
                             viewModel.switchSession(currentDefaultId!!)
                             viewModel.addPdfs(sharedUris, context)
                             viewModel.sharedUris.value = emptyList()
-                            activeTool = Tool.Merge
+                            activeTool = Tool.Pipeline
                         } else {
                             showStageSelectorForShare = true
                         }
@@ -153,7 +156,7 @@ fun PdfMergerApp(viewModel: MergeViewModel = viewModel()) {
                 
                 viewModel.addPdfs(sharedUris, context)
                 viewModel.sharedUris.value = emptyList()
-                activeTool = Tool.Merge
+                activeTool = Tool.Pipeline
             }
         )
     }
@@ -298,7 +301,7 @@ private fun ToolRouter(
     }
 
     when (tool) {
-        Tool.Merge -> StagingScreen(
+        Tool.Pipeline -> StagingScreen(
             viewModel = viewModel,
             onShare = {
                 viewModel.mergeResult.value?.let { result ->
@@ -312,6 +315,7 @@ private fun ToolRouter(
             },
             onBack = onBack
         )
+        Tool.Merge -> MergeScreen(initialUris = pendingUris, onBack = onBack)
         Tool.Compress -> CompressScreen(initialUri = initialUri, onBack = onBack)
         Tool.Extract -> ExtractScreen(initialUri = initialUri, onBack = onBack)
         Tool.Split -> SplitScreen(initialUri = initialUri, onBack = onBack)

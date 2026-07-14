@@ -119,7 +119,7 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageNumbers,
                     onActionClick = {
-                        suggestedOutputName = "numbered_$fileName"
+                        suggestedOutputName = FileProviderUtil.generateSmartName("page_numbers", listOf(fileName))
                         showRenameDialog = true
                     }
                 )
@@ -157,7 +157,7 @@ val filePicker = rememberLauncherForActivityResult(
             fileName = "Preview - Page Numbers",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "numbered_$fileName"
+                suggestedOutputName = FileProviderUtil.generateSmartName("page_numbers", listOf(fileName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

@@ -225,7 +225,7 @@ val filePicker = rememberLauncherForActivityResult(
             fileName = "Preview - ${fileName}",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "unlocked_$fileName"
+                suggestedOutputName = FileProviderUtil.generateSmartName("unlock", listOf(fileName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

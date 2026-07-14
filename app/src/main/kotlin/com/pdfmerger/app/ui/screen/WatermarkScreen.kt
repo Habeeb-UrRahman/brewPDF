@@ -4,11 +4,15 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FontDownload
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Create
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -39,6 +43,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import com.pdfmerger.app.ui.component.RenameDialog
+import com.pdfmerger.app.ui.component.SignatureDialog
+import androidx.compose.foundation.border
+import coil.compose.AsyncImage
 
 data class WatermarkColor(val name: String, val composeColor: Color, val iTextColor: com.itextpdf.kernel.colors.Color)
 
@@ -59,13 +66,22 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
     var fileName by remember { mutableStateOf("") }
     var fileSize by remember { mutableStateOf(0L) }
     
+    var isImageMode by remember { mutableStateOf(false) }
     var applyToAll by remember { mutableStateOf(true) }
     var watermarkText by remember { mutableStateOf("") }
     var customRules by remember { mutableStateOf(listOf(Pair("", ""))) }
     
+    var removeBackground by remember { mutableStateOf(false) }
     var watermarkOpacity by remember { mutableFloatStateOf(0.3f) }
     var watermarkFontSize by remember { mutableFloatStateOf(80f) }
     var selectedColor by remember { mutableStateOf(availableColors[0]) }
+    
+    val stampsDir = remember { File(context.filesDir, "stamps").apply { mkdirs() } }
+    var savedStamps by remember { mutableStateOf(stampsDir.listFiles()?.toList() ?: emptyList()) }
+    var selectedStamp by remember { mutableStateOf<File?>(null) }
+    var pendingStampToSave by remember { mutableStateOf<File?>(null) }
+    var showSignatureDialog by remember { mutableStateOf(false) }
+    var stampScale by remember { mutableFloatStateOf(0.5f) }
     
     var isProcessing by remember { mutableStateOf(false) }
     var isDone by remember { mutableStateOf(false) }
@@ -108,6 +124,19 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
             applyToAll = true
         }
     }
+    
+    val stampPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    val file = FileProviderUtil.copyUriToStaging(context, it, "temp_stamp_${System.currentTimeMillis()}.png")
+                    if (file != null) {
+                        pendingStampToSave = file
+                    }
+                }
+            }
+        }
+    }
 
     fun parseWatermarkRules(rules: List<Pair<String, String>>): Map<Int, String> {
         val map = mutableMapOf<Int, String>()
@@ -137,9 +166,43 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
         return map
     }
 
+    if (showSignatureDialog) {
+        SignatureDialog(
+            onDismiss = { showSignatureDialog = false },
+            onSave = { file ->
+                showSignatureDialog = false
+                pendingStampToSave = file
+            },
+            cacheDir = context.cacheDir
+        )
+    }
+
+    if (pendingStampToSave != null) {
+        AlertDialog(
+            onDismissRequest = { pendingStampToSave = null },
+            title = { Text("Save Stamp") },
+            text = { Text("Do you want to save this stamp/signature to your library for future use?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val dest = File(stampsDir, "stamp_${System.currentTimeMillis()}.png")
+                    pendingStampToSave?.copyTo(dest)
+                    savedStamps = stampsDir.listFiles()?.toList() ?: emptyList()
+                    selectedStamp = dest
+                    pendingStampToSave = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    selectedStamp = pendingStampToSave
+                    pendingStampToSave = null 
+                }) { Text("Just Use Once") }
+            }
+        )
+    }
+
     BrewScaffold(
         title = "Watermark PDF",
-        subtitle = "Add a text overlay to pages",
+        subtitle = "Add a text overlay or stamp",
         onBack = onBack,
         bottomBar = {
             if (selectedUri != null) {
@@ -168,18 +231,30 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                                         ?: throw Exception("Failed to read file")
                                     val outputFile = File(context.cacheDir, "preview_watermarked_${System.currentTimeMillis()}.pdf")
                                     
-                                    val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
-                                    val defaultTxt = if (applyToAll) watermarkText else null
+                                    if (isImageMode && selectedStamp != null) {
+                                        PdfUtils.addImageWatermark(
+                                            inputFile = inputFile,
+                                            outputFile = outputFile,
+                                            imageFile = selectedStamp!!,
+                                            opacity = watermarkOpacity,
+                                            scale = stampScale,
+                                            removeBackground = removeBackground
+                                        )
+                                    } else {
+                                        val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
+                                        val defaultTxt = if (applyToAll) watermarkText else null
+                                        
+                                        PdfUtils.addTextWatermark(
+                                            inputFile = inputFile,
+                                            outputFile = outputFile,
+                                            defaultText = defaultTxt,
+                                            customTextMap = customMap,
+                                            color = selectedColor.iTextColor,
+                                            opacity = watermarkOpacity,
+                                            fontSize = watermarkFontSize
+                                        )
+                                    }
                                     
-                                    PdfUtils.addTextWatermark(
-                                        inputFile = inputFile,
-                                        outputFile = outputFile,
-                                        defaultText = defaultTxt,
-                                        customTextMap = customMap,
-                                        color = selectedColor.iTextColor,
-                                        opacity = watermarkOpacity,
-                                        fontSize = watermarkFontSize
-                                    )
                                     previewFile?.delete()
                                     previewFile = outputFile
                                     inputFile.delete()
@@ -192,11 +267,11 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                         }
                     },
                     actionText = if (isDone) "Done ✓" else "Save Watermark",
-                    isActionEnabled = (applyToAll && watermarkText.isNotEmpty()) || (!applyToAll && customRules.any { it.first.isNotEmpty() && it.second.isNotEmpty() }),
+                    isActionEnabled = if (isImageMode) selectedStamp != null else ((applyToAll && watermarkText.isNotEmpty()) || (!applyToAll && customRules.any { it.first.isNotEmpty() && it.second.isNotEmpty() })),
                     isProcessing = isProcessing,
                     actionColor = ToolWatermark,
                     onActionClick = {
-                        suggestedOutputName = "watermarked_$fileName"
+                        suggestedOutputName = FileProviderUtil.generateSmartName("watermark", listOf(fileName))
                         showRenameDialog = true
                     }
                 )
@@ -216,106 +291,214 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
         } else {
             Spacer(modifier = Modifier.height(24.dp))
             BrewFileCard(fileName = fileName, fileSize = fileSize)
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { applyToAll = !applyToAll }) {
-                Checkbox(checked = applyToAll, onCheckedChange = { applyToAll = it }, colors = CheckboxDefaults.colors(checkedColor = ToolWatermark))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Apply same watermark to all pages", style = MaterialTheme.typography.bodyLarge)
+            TabRow(selectedTabIndex = if (isImageMode) 1 else 0, containerColor = Color.Transparent, contentColor = ToolWatermark) {
+                Tab(selected = !isImageMode, onClick = { isImageMode = false }, text = { Text("Text") })
+                Tab(selected = isImageMode, onClick = { isImageMode = true }, text = { Text("Stamp / Signature") })
             }
             Spacer(modifier = Modifier.height(16.dp))
-
-            if (applyToAll) {
-                OutlinedTextField(
-                    value = watermarkText,
-                    onValueChange = { watermarkText = it },
-                    label = { Text("Watermark Text (e.g., CONFIDENTIAL)") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ToolWatermark,
-                        focusedLabelColor = ToolWatermark
-                    )
-                )
-            } else {
-                Text("Custom Pages", style = MaterialTheme.typography.titleSmall)
+            
+            if (isImageMode) {
+                Text("Stamp Library", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
-                customRules.forEachIndexed { index, rule ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = rule.first,
-                            onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, newVal to rule.second) } },
-                            label = { Text("Pages (e.g. 1, 3-5)") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        OutlinedTextField(
-                            value = rule.second,
-                            onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, rule.first to newVal) } },
-                            label = { Text("Text") },
-                            modifier = Modifier.weight(1.5f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        IconButton(onClick = { customRules = customRules.toMutableList().apply { removeAt(index) } }) {
-                            Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete Rule", tint = MaterialTheme.colorScheme.error)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)
+                ) {
+                    items(savedStamps) { stampFile ->
+                        val isSelected = selectedStamp == stampFile
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) ToolWatermark else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .background(Color.White)
+                                .clickable { selectedStamp = stampFile },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = stampFile,
+                                contentDescription = "Saved Stamp",
+                                modifier = Modifier.fillMaxSize().padding(4.dp)
+                            )
+                            if (isSelected) {
+                                IconButton(
+                                    onClick = { 
+                                        stampFile.delete()
+                                        savedStamps = stampsDir.listFiles()?.toList() ?: emptyList()
+                                        selectedStamp = null
+                                    },
+                                    modifier = Modifier.align(Alignment.TopEnd).size(24.dp).background(Color(0x88000000), CircleShape)
+                                ) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete", tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                            }
                         }
                     }
-                }
-                TextButton(onClick = { customRules = customRules + Pair("", "") }) {
-                    Icon(Icons.Outlined.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Rule", color = ToolWatermark)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            Text("Color", style = MaterialTheme.typography.titleSmall)
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                availableColors.forEach { colorOption ->
-                    val isSelected = selectedColor == colorOption
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(colorOption.composeColor)
-                            .clickable { selectedColor = colorOption },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
+                    item {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { stampPicker.launch(arrayOf("image/*")) }
+                                .padding(8.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White)
-                            )
+                                    .size(50.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.Image, contentDescription = "Pick Image", tint = ToolWatermark)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Image", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    item {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showSignatureDialog = true }
+                                .padding(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.Create, contentDescription = "Draw Signature", tint = ToolWatermark)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Draw", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Scale: ${(stampScale * 100).toInt()}%", style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = stampScale,
+                    onValueChange = { stampScale = it },
+                    valueRange = 0.1f..3.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = ToolWatermark,
+                        activeTrackColor = ToolWatermark
+                    )
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { removeBackground = !removeBackground }) {
+                    Checkbox(checked = removeBackground, onCheckedChange = { removeBackground = it }, colors = CheckboxDefaults.colors(checkedColor = ToolWatermark))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Make white background transparent", style = MaterialTheme.typography.bodyLarge)
+                }
+                
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { applyToAll = !applyToAll }) {
+                    Checkbox(checked = applyToAll, onCheckedChange = { applyToAll = it }, colors = CheckboxDefaults.colors(checkedColor = ToolWatermark))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Apply same watermark to all pages", style = MaterialTheme.typography.bodyLarge)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (applyToAll) {
+                    OutlinedTextField(
+                        value = watermarkText,
+                        onValueChange = { watermarkText = it },
+                        label = { Text("Watermark Text (e.g., CONFIDENTIAL)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ToolWatermark,
+                            focusedLabelColor = ToolWatermark
+                        )
+                    )
+                } else {
+                    Text("Custom Pages", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    customRules.forEachIndexed { index, rule ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = rule.first,
+                                onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, newVal to rule.second) } },
+                                label = { Text("Pages (e.g. 1, 3-5)") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            OutlinedTextField(
+                                value = rule.second,
+                                onValueChange = { newVal -> customRules = customRules.toMutableList().apply { set(index, rule.first to newVal) } },
+                                label = { Text("Text") },
+                                modifier = Modifier.weight(1.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            IconButton(onClick = { customRules = customRules.toMutableList().apply { removeAt(index) } }) {
+                                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete Rule", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                    TextButton(onClick = { customRules = customRules + Pair("", "") }) {
+                        Icon(Icons.Outlined.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add Rule", color = ToolWatermark)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text("Color", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    availableColors.forEach { colorOption ->
+                        val isSelected = selectedColor == colorOption
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(colorOption.composeColor)
+                                .clickable { selectedColor = colorOption },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Font Size: ${watermarkFontSize.toInt()}", style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = watermarkFontSize,
+                    onValueChange = { watermarkFontSize = it },
+                    valueRange = 12f..150f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = ToolWatermark,
+                        activeTrackColor = ToolWatermark
+                    )
+                )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text("Opacity: ${(watermarkOpacity * 100).toInt()}%", style = MaterialTheme.typography.titleSmall)
             Slider(
                 value = watermarkOpacity,
                 onValueChange = { watermarkOpacity = it },
                 valueRange = 0.1f..1.0f,
-                colors = SliderDefaults.colors(
-                    thumbColor = ToolWatermark,
-                    activeTrackColor = ToolWatermark
-                )
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text("Font Size: ${watermarkFontSize.toInt()}", style = MaterialTheme.typography.titleSmall)
-            Slider(
-                value = watermarkFontSize,
-                onValueChange = { watermarkFontSize = it },
-                valueRange = 12f..150f,
                 colors = SliderDefaults.colors(
                     thumbColor = ToolWatermark,
                     activeTrackColor = ToolWatermark
@@ -337,7 +520,7 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
             fileName = "Preview - ${fileName}",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "watermarked_$fileName"
+                suggestedOutputName = FileProviderUtil.generateSmartName("watermark", listOf(fileName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }
@@ -359,18 +542,29 @@ fun WatermarkScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                             val outputFile = File(context.cacheDir, "watermarked_${timestamp}.pdf")
                             
-                            val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
-                            val defaultTxt = if (applyToAll) watermarkText else null
-                            
-                            PdfUtils.addTextWatermark(
-                                inputFile = inputFile,
-                                outputFile = outputFile,
-                                defaultText = defaultTxt,
-                                customTextMap = customMap,
-                                color = selectedColor.iTextColor,
-                                opacity = watermarkOpacity,
-                                fontSize = watermarkFontSize
-                            )
+                            if (isImageMode && selectedStamp != null) {
+                                PdfUtils.addImageWatermark(
+                                    inputFile = inputFile,
+                                    outputFile = outputFile,
+                                    imageFile = selectedStamp!!,
+                                    opacity = watermarkOpacity,
+                                    scale = stampScale,
+                                    removeBackground = removeBackground
+                                )
+                            } else {
+                                val customMap = if (applyToAll) emptyMap() else parseWatermarkRules(customRules)
+                                val defaultTxt = if (applyToAll) watermarkText else null
+                                
+                                PdfUtils.addTextWatermark(
+                                    inputFile = inputFile,
+                                    outputFile = outputFile,
+                                    defaultText = defaultTxt,
+                                    customTextMap = customMap,
+                                    color = selectedColor.iTextColor,
+                                    opacity = watermarkOpacity,
+                                    fontSize = watermarkFontSize
+                                )
+                            }
                             
                             val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, finalName)
                             if (resultUri != null) {

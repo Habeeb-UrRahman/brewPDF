@@ -14,12 +14,12 @@
     <string name="error_min_one_more">Add at least one more PDF.</string>
     <string name="error_merge_failed">Merge failed. Please try again.</string>
     <string name="error_file_read">Error reading PDF files. Please try again.</string>
-    <string name="empty_title">No PDFs Staged</string>
+    <string name="empty_title">Studio is Empty</string>
     <string name="empty_subtitle">Share PDFs from any app or tap the button below to add files</string>
     <string name="pages">pages</string>
     <string name="page">page</string>
     <string name="drag_to_reorder">Drag to reorder</string>
-    <string name="tab_stage">Stage</string>
+    <string name="tab_stage">Studio</string>
     <string name="tab_tools">Tools</string>
     <string name="tool_compress">Compress</string>
     <string name="tool_compress_desc">Shrink PDF file size</string>

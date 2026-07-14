@@ -29,7 +29,7 @@ import com.pdfmerger.app.ui.theme.*
 // ── Data ──
 
 enum class Tool {
-    Merge, Compress, Extract, ImagesToPdf, Encrypt, PageEditor,
+    Pipeline, Merge, Compress, Extract, ImagesToPdf, Encrypt, PageEditor,
     PdfToImages, Unlock, Watermark, PageNumbers, Redact,
     ScanDocument, TextToPdf, PdfViewer, PdfMaker, Settings, Split, Ocr
 }
@@ -50,6 +50,7 @@ data class ToolCategory(
 
 val toolCategories = listOf(
     ToolCategory("Organize", listOf(
+        ToolItem(Tool.Merge, Icons.Rounded.Layers, "Quick Merge", "Combine PDFs", ToolMerge),
         ToolItem(Tool.Extract, Icons.Outlined.ContentCut, "Extract Pages", "Pull specific pages", ToolExtract),
         ToolItem(Tool.Split, Icons.AutoMirrored.Outlined.CallSplit, "Split PDF", "Split at page", ToolExtract),
         ToolItem(Tool.PageEditor, Icons.Outlined.ViewComfy, "Page Editor", "Reorder & rotate", ToolPageEditor),
@@ -107,10 +108,10 @@ fun HomeScreen(
                 TrustStrip()
             }
 
-            // ── Merge Hero Card ──
+            // ── Pipeline Hero Card ──
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                MergeHeroCard(onClick = { onToolSelected(Tool.Merge) })
+                PipelineHeroCard(onClick = { onToolSelected(Tool.Pipeline) })
             }
 
             // ── Tool Categories as Grid ──
@@ -257,7 +258,7 @@ private fun TrustDot() {
 }
 
 @Composable
-private fun MergeHeroCard(onClick: () -> Unit) {
+private fun PipelineHeroCard(onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -296,20 +297,20 @@ private fun MergeHeroCard(onClick: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            Icons.Rounded.Layers,
+                            Icons.Outlined.AutoAwesome,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(28.dp)
                         )
                         Text(
-                            text = "Merge & Stage",
+                            text = "PDF Studio",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
                     Text(
-                        text = "Combine multiple PDFs into one. Stage files, reorder, preview, and merge — all offline.",
+                        text = "Your all-in-one workspace. Watermark, merge, number, lock & convert — all in one go.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.85f)
                     )

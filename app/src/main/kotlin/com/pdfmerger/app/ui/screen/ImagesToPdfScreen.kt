@@ -144,8 +144,7 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolImagesToPdf,
                     onActionClick = {
-                        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                        suggestedOutputName = "images_${timestamp}.pdf"
+                        suggestedOutputName = FileProviderUtil.generateSmartName("images_to_pdf", emptyList())
                         showRenameDialog = true
                     }
                 )
@@ -248,8 +247,7 @@ fun ImagesToPdfScreen(initialUris: List<Uri> = emptyList(), onBack: () -> Unit) 
             fileName = "Preview - Images to PDF",
             onSave = {
                 showPreviewViewer = false
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                suggestedOutputName = "images_${timestamp}.pdf"
+                suggestedOutputName = FileProviderUtil.generateSmartName("images_to_pdf", emptyList())
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

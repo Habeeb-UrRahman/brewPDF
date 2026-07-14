@@ -132,7 +132,7 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolEncrypt,
                     onActionClick = {
-                        suggestedOutputName = "locked_$fileName"
+                        suggestedOutputName = FileProviderUtil.generateSmartName("encrypt", listOf(fileName))
                         showRenameDialog = true
                     }
                 )
@@ -217,7 +217,7 @@ val filePicker = rememberLauncherForActivityResult(
             fileName = "Preview - Locked PDF",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "locked_$fileName"
+                suggestedOutputName = FileProviderUtil.generateSmartName("encrypt", listOf(fileName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

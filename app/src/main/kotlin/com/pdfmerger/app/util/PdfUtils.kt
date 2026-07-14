@@ -10,6 +10,7 @@ import com.itextpdf.kernel.geom.PageSize
 import com.itextpdf.kernel.pdf.EncryptionConstants
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfReader
+import com.itextpdf.kernel.pdf.PdfVersion
 import com.itextpdf.kernel.pdf.PdfWriter
 import com.itextpdf.kernel.pdf.ReaderProperties
 import com.itextpdf.kernel.pdf.WriterProperties
@@ -212,7 +213,7 @@ object PdfUtils {
      * Converts each page of a PDF to an image file (JPEG or PNG).
      * Uses Android's PdfRenderer for native rendering.
      */
-    fun pdfToImages(inputFile: File, outputDir: File, format: ImageFormat) {
+    fun pdfToImages(inputFile: File, outputDir: File, format: ImageFormat, prefix: String = "") {
         val pfd = ParcelFileDescriptor.open(inputFile, ParcelFileDescriptor.MODE_READ_ONLY)
         val renderer = PdfRenderer(pfd)
 
@@ -228,7 +229,8 @@ object PdfUtils {
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
             page.close()
 
-            val outputFile = File(outputDir, "page_${String.format("%03d", i + 1)}.${format.ext}")
+            val prefixStr = if (prefix.isNotBlank()) "${prefix}_" else ""
+            val outputFile = File(outputDir, "${prefixStr}page_${String.format("%03d", i + 1)}.${format.ext}")
             FileOutputStream(outputFile).use { fos ->
                 val compressFormat = if (format == ImageFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
                 bitmap.compress(compressFormat, 95, fos)
@@ -254,12 +256,14 @@ object PdfUtils {
         opacity: Float = 0.3f,
         fontSize: Float = 80f
     ) {
-        val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile))
-        val font = PdfFontFactory.createFont(com.itextpdf.io.font.constants.StandardFonts.HELVETICA_BOLD)
-        val transparentState = PdfExtGState().setFillOpacity(opacity)
+        try {
+            val writerProps = WriterProperties().setPdfVersion(PdfVersion.PDF_1_5)
+            val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile.absolutePath, writerProps))
+            val font = PdfFontFactory.createFont(com.itextpdf.io.font.constants.StandardFonts.HELVETICA_BOLD)
+            val transparentState = PdfExtGState().setFillOpacity(opacity)
 
-        for (i in 1..pdfDoc.numberOfPages) {
-            val textToDraw = customTextMap[i] ?: defaultText
+            for (i in 1..pdfDoc.numberOfPages) {
+                val textToDraw = customTextMap[i] ?: defaultText
             if (textToDraw.isNullOrBlank()) continue // Skip if no watermark for this page
 
             val page = pdfDoc.getPage(i)
@@ -284,33 +288,143 @@ object PdfUtils {
                 0.785398f // 45 degrees in radians
             )
             canvas.close()
-            pdfCanvas.restoreState()
+                pdfCanvas.restoreState()
+            }
+            pdfDoc.close()
+        } catch (e: Exception) {
+            outputFile.delete() // Cleanup
+            throw IllegalStateException("Watermarking failed: This PDF (e.g., scanned image PDF) might not support text layers or transparency. Error: ${e.localizedMessage}", e)
         }
-        pdfDoc.close()
+    }
+
+    /**
+     * Adds an image watermark to the PDF.
+     */
+    fun addImageWatermark(
+        inputFile: File,
+        outputFile: File,
+        imageFile: File,
+        opacity: Float = 0.5f,
+        scale: Float = 0.5f,
+        removeBackground: Boolean = false
+    ) {
+        var processedImageFile = imageFile
+        try {
+            if (removeBackground) {
+                var bitmap = android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath)
+                if (bitmap != null) {
+                    // Scale down if too large to prevent OOM
+                    val maxDim = 1024
+                    if (bitmap.width > maxDim || bitmap.height > maxDim) {
+                        val ratio = Math.min(maxDim.toFloat() / bitmap.width, maxDim.toFloat() / bitmap.height)
+                        val scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * ratio).toInt(), (bitmap.height * ratio).toInt(), true)
+                        bitmap.recycle()
+                        bitmap = scaled
+                    }
+
+                    val width = bitmap.width
+                    val height = bitmap.height
+                    val pixels = IntArray(width * height)
+                    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+                    // Make white/light pixels transparent
+                    for (i in pixels.indices) {
+                        val color = pixels[i]
+                        val r = android.graphics.Color.red(color)
+                        val g = android.graphics.Color.green(color)
+                        val b = android.graphics.Color.blue(color)
+                        
+                        // If pixel is very bright (close to white), make it transparent
+                        if (r > 200 && g > 200 && b > 200) {
+                            pixels[i] = android.graphics.Color.TRANSPARENT
+                        }
+                    }
+
+                    val transparentBitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                    transparentBitmap.setPixels(pixels, 0, width, 0, 0, width, height)
+
+                    processedImageFile = File(imageFile.parentFile, "transparent_${System.currentTimeMillis()}.png")
+                    java.io.FileOutputStream(processedImageFile).use { out ->
+                        transparentBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    bitmap.recycle()
+                    transparentBitmap.recycle()
+                }
+            }
+
+            val writerProps = WriterProperties().setPdfVersion(PdfVersion.PDF_1_5)
+            val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile.absolutePath, writerProps))
+            val transparentState = PdfExtGState().setFillOpacity(opacity)
+            
+            val imageData = ImageDataFactory.create(processedImageFile.absolutePath)
+            
+            for (i in 1..pdfDoc.numberOfPages) {
+                val page = pdfDoc.getPage(i)
+                val pageSize = page.pageSize
+                
+                val pdfCanvas = PdfCanvas(page, true)
+                pdfCanvas.saveState()
+                pdfCanvas.setExtGState(transparentState)
+                
+                val image = Image(imageData)
+                image.scaleToFit(pageSize.width * scale, pageSize.height * scale)
+                
+                val canvas = com.itextpdf.layout.Canvas(pdfCanvas, pageSize)
+                canvas.add(
+                    image.setFixedPosition(
+                        (pageSize.width - image.imageScaledWidth) / 2,
+                        (pageSize.height - image.imageScaledHeight) / 2
+                    )
+                )
+                canvas.close()
+                pdfCanvas.restoreState()
+            }
+            pdfDoc.close()
+        } catch (e: Exception) {
+            outputFile.delete()
+            throw IllegalStateException("Watermarking failed: This PDF (e.g., scanned image PDF) might not support image overlays or transparency. Error: ${e.localizedMessage}", e)
+        } finally {
+            // Clean up temporary transparent image if we created one
+            if (removeBackground && processedImageFile != imageFile && processedImageFile.exists()) {
+                processedImageFile.delete()
+            }
+        }
     }
 
     /**
      * Adds page numbers (e.g., "Page 1 of N") to the bottom of each page.
      */
     fun addPageNumbers(inputFile: File, outputFile: File) {
-        val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile))
-        val document = Document(pdfDoc)
-        val totalPages = pdfDoc.numberOfPages
+        try {
+            val writerProps = WriterProperties().setPdfVersion(PdfVersion.PDF_1_5)
+            val pdfDoc = PdfDocument(PdfReader(inputFile), PdfWriter(outputFile.absolutePath, writerProps))
+            val font = PdfFontFactory.createFont(com.itextpdf.io.font.constants.StandardFonts.HELVETICA)
+            val totalPages = pdfDoc.numberOfPages
 
-        for (i in 1..totalPages) {
-            val page = pdfDoc.getPage(i)
-            val pageSize = page.pageSize
-            document.showTextAligned(
-                Paragraph("Page $i of $totalPages").setFontSize(10f).setFontColor(ColorConstants.BLACK),
-                pageSize.width / 2,
-                20f,
-                i,
-                TextAlignment.CENTER,
-                VerticalAlignment.BOTTOM,
-                0f
-            )
+            for (i in 1..totalPages) {
+                val page = pdfDoc.getPage(i)
+                val pageSize = page.pageSize
+                
+                // Wrap existing content to reset coordinates
+                val pdfCanvas = PdfCanvas(page, true)
+                val canvas = com.itextpdf.layout.Canvas(pdfCanvas, pageSize)
+                
+                canvas.setFont(font).setFontSize(10f).setFontColor(ColorConstants.BLACK)
+                canvas.showTextAligned(
+                    "Page $i of $totalPages",
+                    pageSize.width / 2,
+                    20f,
+                    TextAlignment.CENTER,
+                    VerticalAlignment.BOTTOM,
+                    0f
+                )
+                canvas.close()
+            }
+            pdfDoc.close()
+        } catch (e: Exception) {
+            outputFile.delete()
+            throw IllegalStateException("Failed to add page numbers: ${e.localizedMessage}", e)
         }
-        document.close()
     }
 
 

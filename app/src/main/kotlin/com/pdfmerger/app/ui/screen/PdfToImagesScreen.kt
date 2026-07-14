@@ -98,7 +98,8 @@ fun PdfToImagesScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                             val count = withContext(Dispatchers.IO) {
                                 val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "export_input_${System.currentTimeMillis()}.pdf")
                                     ?: throw Exception("Failed to read file")
-                                val outputDir = File(context.cacheDir, "pdf_export_${System.currentTimeMillis()}")
+                                val smartDirName = FileProviderUtil.generateSmartName("pdf_to_images", listOf(fileName)).removeSuffix(".pdf")
+                                val outputDir = File(context.cacheDir, smartDirName)
                                 outputDir.mkdirs()
                                 PdfUtils.pdfToImages(inputFile, outputDir, selectedFormat)
 

@@ -124,8 +124,10 @@ fun SplitScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                                 val stagingDir = File(context.filesDir, "staging")
                                 if (!stagingDir.exists()) stagingDir.mkdirs()
                                 
-                                val out1 = File(stagingDir, "${baseName}_part1.pdf")
-                                val out2 = File(stagingDir, "${baseName}_part2.pdf")
+                                val smartName1 = FileProviderUtil.generateSmartName("split", listOf(fileName), mapOf("part" to "1"))
+                                val smartName2 = FileProviderUtil.generateSmartName("split", listOf(fileName), mapOf("part" to "2"))
+                                val out1 = File(stagingDir, smartName1)
+                                val out2 = File(stagingDir, smartName2)
                                 
                                 withContext(Dispatchers.IO) {
                                     PdfUtils.splitPdf(cachedFile!!, splitAtPage, out1, out2)

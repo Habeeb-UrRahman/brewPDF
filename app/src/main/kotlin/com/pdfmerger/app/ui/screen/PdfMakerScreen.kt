@@ -53,7 +53,7 @@ fun PdfMakerScreen(
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
     
     var showRenameDialog by remember { mutableStateOf(false) }
-    val defaultFileName = "MadeDocument_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}"
+    val defaultFileName = remember { FileProviderUtil.generateSmartName("pdf_maker", emptyList()) }
     
     var showPreviewViewer by remember { mutableStateOf(false) }
     var previewFile by remember { mutableStateOf<File?>(null) }

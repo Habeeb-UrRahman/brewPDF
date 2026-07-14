@@ -178,4 +178,49 @@ object FileProviderUtil {
             null
         }
     }
+
+    /**
+     * Generates a smart context-aware filename.
+     */
+    fun generateSmartName(tool: String, sourceFiles: List<String>, extras: Map<String, String> = emptyMap()): String {
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+        val firstFile = sourceFiles.firstOrNull()?.let { 
+            val name = it.substringBeforeLast(".")
+            if (name.length > 20) name.substring(0, 20) else name
+        } ?: "document"
+
+        return when (tool) {
+            "merge" -> {
+                val count = sourceFiles.size
+                if (count > 1) {
+                    "merged_${firstFile}_+${count - 1}_${timestamp}.pdf"
+                } else {
+                    "merged_${firstFile}_${timestamp}.pdf"
+                }
+            }
+            "compress" -> "compressed_${firstFile}_${timestamp}.pdf"
+            "extract" -> {
+                val range = extras["range"] ?: ""
+                "extracted_${range}_${firstFile}_${timestamp}.pdf"
+            }
+            "watermark" -> "watermarked_${firstFile}_${timestamp}.pdf"
+            "encrypt", "lock" -> "locked_${firstFile}_${timestamp}.pdf"
+            "unlock" -> "unlocked_${firstFile}_${timestamp}.pdf"
+            "images_to_pdf" -> "images_${timestamp}.pdf"
+            "pdf_maker", "text_to_pdf" -> "document_${timestamp}.pdf"
+            "page_numbers" -> "numbered_${firstFile}_${timestamp}.pdf"
+            "redact" -> "redacted_${firstFile}_${timestamp}.pdf"
+            "split" -> {
+                val part = extras["part"]
+                if (part != null) "split_${firstFile}_part${part}_${timestamp}.pdf"
+                else "split_${firstFile}_${timestamp}.pdf"
+            }
+            "scan" -> "scanned_${timestamp}.pdf"
+            "pipeline" -> {
+                val actionsCount = extras["actionsCount"] ?: "multi"
+                "pipeline_${firstFile}_${actionsCount}actions_${timestamp}.pdf"
+            }
+            else -> "${tool}_${firstFile}_${timestamp}.pdf"
+        }
+    }
 }

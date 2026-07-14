@@ -78,8 +78,7 @@ fun ScanDocumentScreen(onBack: () -> Unit) {
                 scannedPdfUri = scanResult.pdf?.uri
                 scannedPages = scanResult.pages
                 pageCount = scanResult.pages?.size ?: 0
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                suggestedFileName = "scanned_${timestamp}"
+                suggestedFileName = FileProviderUtil.generateSmartName("scan", emptyList())
                 showRenameDialog = true
             }
         }

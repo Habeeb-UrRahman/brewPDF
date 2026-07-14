@@ -63,9 +63,9 @@ fun WelcomeScreen(onFinished: () -> Unit) {
                 illustration = { progress -> WelcomeIllustration(progress) }
             ),
             OnboardingPage(
-                title = "Merge & Stage",
-                subtitle = "Your PDF Assembly Line",
-                description = "Stage multiple PDFs, reorder them with drag & drop, preview pages, then merge — all without internet.",
+                title = "PDF Studio",
+                subtitle = "Your All-in-One Workspace",
+                description = "Stack multiple tools — like Watermark, Merge, Encrypt, and Page Numbers — and execute them all in a single tap.",
                 accentStart = BrewAmber,
                 accentEnd = Color(0xFFE27B58),
                 illustration = { progress -> MergeIllustration(progress) }

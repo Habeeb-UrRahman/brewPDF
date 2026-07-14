@@ -128,13 +128,13 @@ fun RedactScreen(initialUri: Uri? = null, onBack: () -> Unit) {
                                 withContext(Dispatchers.IO) {
                                     val inputFile = FileProviderUtil.copyUriToStaging(context, selectedUri!!, "redact_input_${System.currentTimeMillis()}.pdf")
                                         ?: throw Exception("Failed to read file")
-                                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                                    val outputFile = File(context.cacheDir, "redacted_${timestamp}.pdf")
+                                    val smartName = FileProviderUtil.generateSmartName("redact", listOf(fileName))
+                                    val outputFile = File(context.cacheDir, smartName)
                                     PdfUtils.redactText(inputFile, outputFile, textToRedact)
-                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, "redacted_$fileName")
+                                    val resultUri = FileProviderUtil.saveToDownloads(context, outputFile, smartName)
                                     if (resultUri != null) {
                                         mergeResult = com.pdfmerger.app.viewmodel.MergeResult(
-                                            fileName = "redacted_$fileName",
+                                            fileName = smartName,
                                             fileSize = outputFile.length(),
                                             outputUri = resultUri,
                                             localFile = outputFile

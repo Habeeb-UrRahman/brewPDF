@@ -171,7 +171,7 @@ val filePicker = rememberLauncherForActivityResult(
                     isProcessing = isProcessing,
                     actionColor = com.pdfmerger.app.ui.theme.ToolPageEditor,
                     onActionClick = {
-                        suggestedOutputName = "edited_$fileName"
+                        suggestedOutputName = FileProviderUtil.generateSmartName("page_editor", listOf(fileName))
                         showRenameDialog = true
                     }
                 )
@@ -284,7 +284,7 @@ val filePicker = rememberLauncherForActivityResult(
             fileName = "Preview - Page Editor",
             onSave = {
                 showPreviewViewer = false
-                suggestedOutputName = "edited_$fileName"
+                suggestedOutputName = FileProviderUtil.generateSmartName("page_editor", listOf(fileName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }

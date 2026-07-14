@@ -205,7 +205,7 @@ fun TextToPdfScreen(onBack: () -> Unit, initialUri: Uri? = null) {
             onSave = {
                 showPreviewViewer = false
                 val baseName = if (fileName.contains(".")) fileName.substringBeforeLast(".") else fileName
-                suggestedOutputName = "${baseName}.pdf"
+                suggestedOutputName = FileProviderUtil.generateSmartName("text_to_pdf", listOf(baseName))
                 showRenameDialog = true
             },
             onDismiss = { showPreviewViewer = false }
